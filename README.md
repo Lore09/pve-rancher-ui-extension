@@ -24,14 +24,19 @@ Once the `pve` NodeDriver resource is registered on the Rancher local cluster
 (see the driver repo's Helm chart):
 
 1. In Rancher: **Apps → Repositories → Create → Extension repository**, then
-   add this repository's `gh-pages` branch:
+   add this repository's `master` branch:
      - Name: `pve-rancher-ui-extension`
      - **Git Repo URL:** `https://github.com/Lore09/pve-rancher-ui-extension.git`
-     - **Git Branch:** `gh-pages`
+     - **Git Branch:** `master`
 2. **Apps → Extensions** lists *Proxmox VE Node Driver UI*. Click **Install**.
 3. Rancher loads the extension; once active, the cloud-credential and
    machine-config forms for the `pve` driver switch from the generic
    camelCase-keyed form to the polished components shipped here.
+
+Alternatively, each release attaches the packaged Helm chart
+(`pve-<version>.tgz`) to its [GitHub
+Release](https://github.com/Lore09/pve-rancher-ui-extension/releases), so the
+chart can be installed directly without registering an Extension Repository.
 
 > The extension does not edit the NodeDriver's `uiUrl` — the modern
 > dashboard auto-registers Vue components named after the driver
@@ -48,40 +53,89 @@ to update the driver resource.
 
 ## Repository layout
 
+Hand-written sources:
+
 ```
 pve-rancher-ui-extension/
-  package.json                              @rancher/shell tooling, build scripts
-  vue.config.js                             vue-cli-config pulled from @rancher/shell
-  babel.config.js                           tsconfig.json
+  package.json                            @rancher/shell tooling, build scripts
+  vue.config.js                           vue-cli config pulled from @rancher/shell
+  babel.config.js                         babel config
+  tsconfig.json                           TypeScript config
   pkg/
     pve/
-      package.json                          Rancher catalog annotations
-      index.ts                              importTypes() self-registration
-      pve.ts                                 Proxmox VE REST API helper (proxy)
-      icon.svg                              picker icon
-      cloud-credential/pve.vue              credential form
-      machine-config/pve.vue                node pool form
-      components/BusyButton.vue              test-connection button
-      l10n/en-us.yaml                       UI labels + placeholders
+      package.json                        version + Rancher catalog annotations
+      index.ts                            importTypes() self-registration
+      pve.ts                              Proxmox VE REST API helper (proxy)
+      icon.svg                            picker icon
+      cloud-credential/pve.vue            credential form
+      machine-config/pve.vue              node pool form
+      components/BusyButton.vue           test-connection button
+      l10n/en-us.yaml                     UI labels + placeholders
+      babel.config.js                     per-package build config
+      tsconfig.json                       per-package build config
+      vue.config.js                       per-package build config
   .github/workflows/
-    ci.yml                                  yarn install + yarn build
-    release.yml                             build-pkg + publish to gh-pages
+    ci.yml                                yarn install + build-pkg on PRs
+    release.yml                           build-pkg, publish to master, GitHub Release
+```
+
+Generated and committed to `master` by the release workflow — do not edit by
+hand, they are overwritten on every release:
+
+```
+  index.yaml                              Helm repo index Rancher reads
+  assets/pve/pve-<version>.tgz            packaged Helm chart
+  charts/pve/<version>/                   unpacked chart source
+  extensions/pve/<version>/               built plugin bundle Rancher loads
+  extensions/pve/<version>.tgz            compressed bundle (compressedEndpoint)
 ```
 
 ## Development
 
 ```bash
-yarn install               # fetches @rancher/shell (one-time)
-yarn dev                   # vue-cli-service dev server against a running Rancher
-yarn build                 # build
-yarn build-pkg             # build the Helm chart package
-yarn publish-pkgs          # commit chart(s) to gh-pages
+yarn install --frozen-lockfile   # fetches @rancher/shell (one-time)
+yarn dev                         # dev server against a running Rancher
+yarn build-pkg pve               # compile the extension into dist-pkg/
 ```
+
+`yarn build` is inherited from `@rancher/shell` and runs the *full dashboard*
+build, which expects a dashboard monorepo layout — it does not work in a
+standalone extension repo. Use `yarn build-pkg pve` instead.
+
+`yarn publish-pkgs` builds the chart and writes `assets/`, `charts/`,
+`extensions/` and `index.yaml` into the working tree. It does **not** commit or
+push anything; the release workflow is what publishes those to `master`.
 
 See the [Rancher shell docs](https://github.com/rancher/shell) and the
 [Custom Node Driver UI walkthrough](https://ranchermanager.docs.rancher.com/v2.14//extensions/provisioning/node-driver/overview)
 for the wider context.
 
+## Releasing
+
+The version in `pkg/pve/package.json` and the git tag must stay in lockstep —
+the workflow fails loudly if they disagree, because `@rancher/shell`'s publish
+script silently skips any package whose name does not match the release tag.
+
+```bash
+# 1. bump the version
+vim pkg/pve/package.json          # e.g. "version": "0.1.4"
+git commit -am "Bump version to 0.1.4"
+git push
+
+# 2. tag with the same semver, prefixed with v
+git tag v0.1.4
+git push origin v0.1.4
+```
+
+Pushing the tag is the only trigger. The workflow then:
+
+1. verifies `v0.1.4` matches `pkg/pve/package.json`, failing the build otherwise,
+2. builds the extension and packages the Helm chart,
+3. commits `assets/`, `charts/`, `extensions/` and `index.yaml` to `master`,
+   preserving previously published versions,
+4. creates a GitHub Release for `v0.1.4` with auto-generated notes and the
+   packaged chart attached.
+
 ## License
 
-Apache-2.0, see `LICENSE`.
+MIT, see `LICENSE`.
