@@ -1,0 +1,134 @@
+name: Version Release
+
+# Version bumps drive releases.
+#
+# Bumping `version` in pkg/pve/package.json on master is the single action that
+# cuts a release: this workflow notices the change, creates the matching
+# `v<version>` tag, and invokes release.yml to build and publish the chart.
+# There is no separate `git tag` step to remember, and no way to tag a version
+# the extension does not claim to be.
+#
+# WHY THE PATH FILTER IS EXACTLY ONE FILE
+# ---------------------------------------
+# release.yml commits the freshly built chart artifacts (assets/, charts/,
+# extensions/, index.yaml) back to master, because they cannot exist before the
+# build does. Watching only pkg/pve/package.json means that write can never
+# re-trigger this workflow. Do NOT broaden this filter to `pkg/**` — that
+# creates an infinite release loop.
+on:
+  push:
+    branches: [master]
+    paths:
+      - pkg/pve/package.json
+
+# Serialise releases so two quick bumps cannot race to create tags. Never cancel
+# in progress: a half-finished release leaves a tag with no published chart.
+concurrency:
+  group: version-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  detect:
+    name: Detect version bump
+    runs-on: ubuntu-latest
+    outputs:
+      bumped: ${{ steps.check.outputs.bumped }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needs history to diff against the pre-push commit
+
+      - name: Compare package version against the previous commit
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG=pkg/pve/package.json
+
+          NEW_VERSION="$(jq -r '.version' "$PKG")"
+
+          if [ -z "$NEW_VERSION" ] || [ "$NEW_VERSION" = "null" ]; then
+            echo "::error file=$PKG::version is missing"; exit 1
+          fi
+
+          if ! printf '%s' "$NEW_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error file=$PKG::version '$NEW_VERSION' is not semver (x.y.z or x.y.z-pre)"; exit 1
+          fi
+
+          # github.event.before is the tip before this push, which handles a push
+          # containing several commits. It is all-zeros when the branch was just
+          # created, in which case treat the package as new.
+          BEFORE="${{ github.event.before }}"
+          OLD_VERSION=""
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            OLD_VERSION="$(git show "$BEFORE:$PKG" 2>/dev/null | jq -r '.version' 2>/dev/null || true)"
+          fi
+          [ "$OLD_VERSION" = "null" ] && OLD_VERSION=""
+
+          echo "previous version: ${OLD_VERSION:-(none)}"
+          echo "new version:      $NEW_VERSION"
+
+          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+            echo "$PKG changed but version did not; nothing to release."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Reject a decrease, which would leave the Helm index's newest entry
+          # pointing at an older chart. Only the numeric x.y.z core is compared:
+          # `sort -V` does not implement semver precedence for pre-release
+          # suffixes (it treats the shorter string as a prefix, so 0.2.0 sorts
+          # *before* 0.2.0-rc.1), and naively using it would reject the
+          # legitimate promotion of a release candidate to its final version.
+          # Movement within the same core - rc.1 to rc.2, or rc.1 to final - is
+          # therefore allowed; the exact-match case above already caught
+          # "no change".
+          if [ -n "$OLD_VERSION" ]; then
+            OLD_CORE="${OLD_VERSION%%-*}"
+            NEW_CORE="${NEW_VERSION%%-*}"
+            if [ "$OLD_CORE" != "$NEW_CORE" ]; then
+              LOWEST="$(printf '%s\n%s\n' "$OLD_CORE" "$NEW_CORE" | sort -V | head -1)"
+              if [ "$LOWEST" != "$OLD_CORE" ]; then
+                echo "::error file=$PKG::version went backwards: $OLD_VERSION -> $NEW_VERSION"; exit 1
+              fi
+            fi
+          fi
+
+          TAG="v$NEW_VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error file=$PKG::tag $TAG already exists; bump to a new version instead of reusing one"; exit 1
+          fi
+
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.check.outputs.bumped == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.check.outputs.tag }}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "Release $TAG (package version bump)"
+          git push origin "refs/tags/$TAG"
+          echo "::notice::created tag $TAG"
+
+  # Invoke the release workflow directly rather than relying on the tag push to
+  # trigger it. A tag pushed using the default GITHUB_TOKEN does NOT start new
+  # workflow runs, so a tag-triggered path in release.yml would silently never
+  # fire here. Calling it explicitly avoids needing a PAT.
+  release:
+    name: Release
+    needs: detect
+    if: needs.detect.outputs.bumped == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.detect.outputs.tag }}
+    permissions:
+      contents: write
+    secrets: inherit
