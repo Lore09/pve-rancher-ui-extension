@@ -60,13 +60,24 @@ export class PveApi {
     };
   }
 
-  /** Returns true if the host:port of `apiUrl` is in the driver's whitelistDomains. */
+  /**
+   * Hostname of `apiUrl` with the port stripped. Rancher's proxy matches the
+   * allow-list against `url.Hostname()`, which never includes the port, so an
+   * entry like `pve.example.com:8006` would never match.
+   */
+  private get apiHostname(): string {
+    const hostPort = this.apiUrl.replace(/^https?:\/\//, '').split('/')[0];
+
+    return hostPort.replace(/:\d+$/, '');
+  }
+
+  /** Returns true if the hostname of `apiUrl` is in the driver's whitelistDomains. */
   public hostInAllowList(driver: any): boolean {
     if (!driver?.whitelistDomains) {
       return false;
     }
 
-    const host = this.apiUrl.replace(/^https?:\/\//, '').split('/')[0];
+    const host = this.apiHostname;
 
     if (!host) {
       return true;
@@ -76,7 +87,7 @@ export class PveApi {
   }
 
   public async addHostToAllowList(driver: any): Promise<boolean> {
-    const host = this.apiUrl.replace(/^https?:\/\//, '').split('/')[0];
+    const host = this.apiHostname;
 
     driver.whitelistDomains = driver.whitelistDomains || [];
 
