@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
 
 defaults:
   run:
@@ -19,9 +19,6 @@ jobs:
         with:
           node-version: '22'
 
-      # No yarn.lock is committed, so plain `yarn install` (yarn classic on the
-      # runner) generates one in-place and uses it for the rest of the run.
-      # `--network-timeout` gives npm registry hiccups some slack on cold runs.
       - name: Install dependencies
         run: yarn install --immutable --network-timeout 600000
 
