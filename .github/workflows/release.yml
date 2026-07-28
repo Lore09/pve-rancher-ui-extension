@@ -73,7 +73,7 @@ jobs:
           sudo chmod +x /usr/local/bin/md5
 
       - name: Install dependencies
-        run: yarn install --network-timeout 600000
+        run: yarn install --immutable --network-timeout 600000
 
       # The publish script expects a release tag matching `<pkg-name>-<version>`
       # (e.g. `pve-0.1.0`). We use the `v0.1.0` convention for git tags and

@@ -23,7 +23,7 @@ jobs:
       # runner) generates one in-place and uses it for the rest of the run.
       # `--network-timeout` gives npm registry hiccups some slack on cold runs.
       - name: Install dependencies
-        run: yarn install --network-timeout 600000
+        run: yarn install --immutable --network-timeout 600000
 
       - name: Build
         run: yarn build
