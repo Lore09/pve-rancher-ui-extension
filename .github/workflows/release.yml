@@ -1,0 +1,52 @@
+name: Release
+
+# Builds the extension package(s) with `yarn build-pkg` and publishes the
+# resulting chart + assets to the `gh-pages` branch so users can add this
+# repository as an "Extension Repository" in Rancher (Apps → Extensions).
+#
+# Trigger options:
+#   - workflow_dispatch: manual run, pin a specific tag via `tag`
+#   - push tag v*: standard release path, the tag name becomes the version
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish, e.g. v0.1.0. Must already exist.
+        required: true
+        type: string
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # `build-pkg` shells out to @rancher/shell/scripts/build-pkg.sh and writes
+      # the packaged chart(s) plus an updated `index.yaml` to the `charts/`
+      # directory in the repo root.
+      - name: Build extension chart
+        run: yarn build-pkg
+
+      # `publish-pkgs` commits `charts/` (and `index.yaml`) to `gh-pages`.
+      - name: Publish to gh-pages
+        run: yarn publish-pkgs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH_ARGS: "--force --push-remote origin --destination gh-pages --repodir ."

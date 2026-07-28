@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="10" fill="#e63946"/>
+  <path d="M32 8 L56 18 L56 34 C56 47 46 56 32 60 C18 56 8 47 8 34 L8 18 Z" fill="#fff" stroke="#fff" stroke-width="1"/>
+  <path d="M32 14 L50 22 L50 34 C50 44 42 51 32 54 C22 51 14 44 14 34 L14 22 Z" fill="#e63946"/>
+  <text x="32" y="40" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="20" font-weight="bold" fill="#fff">PVE</text>
+</svg>
