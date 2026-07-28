@@ -1,18 +1,25 @@
 name: Release
 
-# Builds the extension package(s) with `yarn build-pkg` + `yarn publish-pkgs`
-# and commits the resulting chart assets (assets/, charts/, extensions/,
-# index.yaml) directly back to the master branch, so users can add this
-# repository as an "Extension Repository" in Rancher pointing at master.
+# Builds the extension package(s) and publishes the resulting chart assets
+# (assets/, charts/, extensions/, index.yaml) directly back to the master
+# branch, so users can add this repository as an "Extension Repository" in
+# Rancher pointing at master.
+#
+# Tag convention:
+#   - Git tag must be `v0.1.0` (v-prefixed semver). The workflow derives the
+#     `pve-0.1.0` form the @rancher/shell publish script expects, and verifies
+#     it against the version in pkg/pve/package.json — the two must stay in
+#     lockstep. Bump pkg/pve/package.json's version, then tag with the same
+#     semver plus a leading `v`.
 #
 # Trigger options:
 #   - workflow_dispatch: manual, pin a specific tag via `tag`
-#   - push tag v*:        standard release path, tag name becomes the version
+#   - push tag v*:        standard release path
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish, e.g. v0.1.0. Must already exist.
+        description: Git tag to publish, e.g. v0.1.0. Must already exist.
         required: true
         type: string
   push:
@@ -47,10 +54,55 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
 
+      # @rancher/shell's publish script calls BSD `md5 -q`, which doesn't exist
+      # on Ubuntu runners (only `md5sum`). Install a tiny shim so the existing
+      # chart comparison loop does not crash on first run.
+      - name: Provide BSD-style md5 shim
+        run: |
+          set -eu
+          sudo tee /usr/local/bin/md5 >/dev/null <<'EOF'
+          #!/usr/bin/env bash
+          # Shim BSD's `md5 -q <file>` → bare MD5, plus wholesale forwarding of
+          # other invocations to md5sum.
+          if [ "$1" = "-q" ]; then
+            md5sum "$2" | awk '{print $1}'
+          else
+            md5sum "$@"
+          fi
+          EOF
+          sudo chmod +x /usr/local/bin/md5
+
       - name: Install dependencies
         run: yarn install --network-timeout 600000
 
+      # The publish script expects a release tag matching `<pkg-name>-<version>`
+      # (e.g. `pve-0.1.0`). We use the `v0.1.0` convention for git tags and
+      # translate here. The git tag's semver must match the version in
+      # pkg/pve/package.json exactly, or this step fails loudly.
+      - name: Derive release tag from package version
+        id: tag
+        run: |
+          set -eu
+          GIT_TAG="${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name }}"
+          case "$GIT_TAG" in
+            v*) ;;
+            *) echo "::error::git tag '$GIT_TAG' must be v-prefixed semver"; exit 1 ;;
+          esac
+
+          PKG_VERSION=$(jq -r .version pkg/pve/package.json)
+          if [ -z "$PKG_VERSION" ]; then
+            echo "::error::missing version field in pkg/pve/package.json"
+            exit 1
+          fi
+
+          if [ "${GIT_TAG#v}" != "$PKG_VERSION" ]; then
+            echo "::error::git tag '$GIT_TAG' does not match pkg/pve/package.json version '$PKG_VERSION'. Bump the package.json version to ${GIT_TAG#v} before re-tagging, or tag with 'v${PKG_VERSION}'."
+            exit 1
+          fi
+
+          echo "release_tag=pve-${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Build and publish extension charts
-        run: yarn publish-pkgs -s ${{ github.repository }} -b master -t ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name }}
+        run: yarn publish-pkgs -s ${{ github.repository }} -b master -t ${{ steps.tag.outputs.release_tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
