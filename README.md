@@ -60,10 +60,20 @@ To replace the icon, overwrite `pkg/pve/icon.svg` — the filename is what
 `index.ts` requires. The registered name `providers/pve.svg` is a lookup key, not
 a filename, and must keep saying `pve`.
 
-> The `pve` in both the l10n keys and the registered image name is the *driver
-> name*, which Rancher takes from the NodeDriver's `status.displayName` (i.e. the
-> binary name). It is **not** the `displayName` in the driver chart's
-> `values.yaml`. Renaming it here silently reverts the label to `pve`.
+The `pve` in the l10n keys and in the registered image name is the driver **id**,
+not a label. Rancher derives that id from the NodeDriver two different ways
+depending on the page:
+
+| Page | id comes from |
+| --- | --- |
+| Cluster-creation provider grid, Node Drivers list | `status.displayName` (the driver binary's name) |
+| Cloud Credential type picker | `spec.displayName` |
+
+Both must read `pve`, so the driver chart deliberately pins
+`nodeDriver.displayName: pve` instead of a pretty value. Setting it to
+`Proxmox VE` makes the credential picker compute the id `proxmox ve`, which
+matches neither the `pvecredentialConfig` schema field nor any registration here —
+the driver then renders unstyled or vanishes from the picker entirely.
 
 The Node Drivers list page shows the name and description but no icon — the shell
 renders no icon slot there.

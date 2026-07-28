@@ -4,7 +4,8 @@
  * `https://host:8006/api2/json` and an API token of the form
  * `USER@REALM!TOKENID=SECRET` (single concatenated string, as printed by
  * `pveum user token add`). We authenticate by setting the
- * `Authorization: PVEAPIToken=<...>` header on every proxied request.
+ * `X-API-Auth-Header: PVEAPIToken=<...>` header on every proxied request,
+ * which Rancher's proxy turns into `Authorization` upstream.
  *
  * If the user's PVE host is not in the node driver's `whitelistDomains`, Rancher
  * returns 502/503 from the proxy; the caller is expected to surface that to the
@@ -42,11 +43,20 @@ export class PveApi {
     return `/meta/proxy/${ stripped.replace(/\/api2\/json\/?$/, '') }`;
   }
 
-  /** `Authorization` header value sent on every proxied request. */
+  /**
+   * Headers sent on every proxied request.
+   *
+   * The PVE credential goes in `X-API-Auth-Header`, not `Authorization`:
+   * Rancher authenticates the incoming request itself, and its token
+   * extraction only falls back to the `R_SESS` cookie when `Authorization`
+   * is absent — a non-`Bearer`/`Basic` value there makes Rancher reject the
+   * call with 401 before the proxy ever runs. `/meta/proxy` copies
+   * `X-API-Auth-Header` into `Authorization` on the outbound request instead.
+   */
   private authHeader(): Record<string, string> {
     return {
-      Accept:          'application/json',
-      Authorization:   `PVEAPIToken=${ this.apiToken }`,
+      Accept:                'application/json',
+      'X-API-Auth-Header':   `PVEAPIToken=${ this.apiToken }`,
     };
   }
 

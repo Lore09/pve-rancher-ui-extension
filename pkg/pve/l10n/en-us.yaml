@@ -3,10 +3,13 @@
 # type picker. Without these keys the dashboard falls back to the raw driver name
 # and renders "pve".
 #
-# The key MUST stay `pve`. Rancher derives it from the NodeDriver's
-# status.displayName, which comes from the driver binary's name — it is not the
-# `displayName` set in the driver chart's values.yaml. Renaming it here silently
-# breaks the lookup and reverts the label to "pve".
+# The key MUST stay `pve` — it is the driver *id*, not a label. Rancher derives
+# that id from the NodeDriver in two different ways depending on the page:
+# status.displayName (the binary name) for the cluster-creation grid and the Node
+# Drivers list, and spec.displayName for the Cloud Credential type picker. Both
+# must therefore read `pve`, which is why the driver chart pins
+# `nodeDriver.displayName: pve` rather than a pretty value. This file is the only
+# place the human-readable name should live.
 cluster:
   provider:
     pve: Proxmox VE
