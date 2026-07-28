@@ -1,8 +1,9 @@
 name: Release
 
-# Builds the extension package(s) with `yarn build-pkg` and publishes the
-# resulting chart + assets to the `gh-pages` branch so users can add this
-# repository as an "Extension Repository" in Rancher (Apps → Extensions).
+# Builds the extension package(s) with `yarn build-pkg` + `yarn publish-pkgs`
+# and commits the resulting chart assets (assets/, charts/, extensions/,
+# index.yaml) directly back to the master branch, so users can add this
+# repository as an "Extension Repository" in Rancher pointing at master.
 #
 # Trigger options:
 #   - workflow_dispatch: manual, pin a specific tag via `tag`
@@ -29,24 +30,27 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.ref }}
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.8.0
+
+      - name: Configure Git
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
       - name: Install dependencies
         run: yarn install --network-timeout 600000
 
-      # `build-pkg` shells out to @rancher/shell/scripts/build-pkg.sh and writes
-      # the packaged chart(s) plus an updated `index.yaml` to the `charts/`
-      # directory in the repo root. A yarn.lock is generated in-place during
-      # the install step above; it is not committed.
-      - name: Build extension chart
-        run: yarn build-pkg
-
-      # `publish-pkgs` from @rancher/shell commits `charts/` and `index.yaml`
-      # to the `gh-pages` branch and pushes back to origin. It needs
-      # GITHUB_TOKEN to push; permissions: contents: write above grants that.
-      - name: Publish to gh-pages
-        run: yarn publish-pkgs
+      - name: Build and publish extension charts
+        run: yarn publish-pkgs -s ${{ github.repository }} -b master -t ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
