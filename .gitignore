@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-pkg
 .shell
 *.log
 .DS_Store
