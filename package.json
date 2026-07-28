@@ -1,6 +1,5 @@
 {
   "name": "pve-rancher-ui-extension",
-  "version": "0.1.0",
   "description": "Rancher UI extension for the pve (Proxmox VE) node driver",
   "private": true,
   "repository": {
@@ -8,7 +7,7 @@
     "url": "git+https://github.com/Lore09/pve-rancher-ui-extension.git"
   },
   "author": "Lorenzo Venerandi",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },
