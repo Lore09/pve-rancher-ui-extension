@@ -1,6 +1,6 @@
 # pve-rancher-ui-extension
 
-The Rancher UI extension for the [`pve`](https://github.com/lore09/pve-rancher-driver)
+The Rancher UI extension for the [`pve`](https://github.com/Lore09/pve-rancher-driver)
 node driver — a Proxmox VE clone-based provisioner for RKE2/K3s node pools.
 
 This repo ships the **Vue dashboard components** Rancher uses to render:
@@ -14,7 +14,7 @@ This repo ships the **Vue dashboard components** Rancher uses to render:
   field pre-populated from the machine name).
 
 It does **not** ship the Go driver binary — that lives in the separate
-[`pve-rancher-driver`](https://github.com/lore09/pve-rancher-driver) repository.
+[`pve-rancher-driver`](https://github.com/Lore09/pve-rancher-driver) repository.
 The two are independent: install the driver chart there to make Rancher able to
 provision VMs, then install this extension here to get the polished UI for it.
 
@@ -26,7 +26,7 @@ Once the `pve` NodeDriver resource is registered on the Rancher local cluster
 1. In Rancher: **Apps → Repositories → Create → Extension repository**, then
    add this repository's `gh-pages` branch:
      - Name: `pve-rancher-ui-extension`
-     - **Git Repo URL:** `https://github.com/lore09/pve-rancher-ui-extension.git`
+     - **Git Repo URL:** `https://github.com/Lore09/pve-rancher-ui-extension.git`
      - **Git Branch:** `gh-pages`
 2. **Apps → Extensions** lists *Proxmox VE Node Driver UI*. Click **Install**.
 3. Rancher loads the extension; once active, the cloud-credential and

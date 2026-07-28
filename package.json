@@ -5,7 +5,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lore09/pve-rancher-ui-extension.git"
+    "url": "git+https://github.com/Lore09/pve-rancher-ui-extension.git"
   },
   "author": "Lorenzo Venerandi",
   "license": "Apache-2.0",
