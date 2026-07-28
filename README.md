@@ -78,14 +78,45 @@ the driver then renders unstyled or vanishes from the picker entirely.
 The Node Drivers list page shows the name and description but no icon — the shell
 renders no icon slot there.
 
-## Allow-lists and the 502 path
+## How requests reach Proxmox VE
 
-Rancher only proxies to hosts explicitly listed in the `pve` NodeDriver's
-`whitelistDomains`. Because every PVE install is at a different host, the
-credential form watches for `502`/`503` from `/meta/proxy/...` and offers a
-one-click *Add host to allow list and retry* button — the same pattern used by
-Rancher's OpenStack example. The user needs the Manage Node Drivers permission
-to update the driver resource.
+Everything the forms read comes from the browser through Rancher's
+`/meta/proxy/<host:port>/api2/json/...`. Three properties of that proxy drive
+most of the code in `pve.ts` and the two form components:
+
+**1. The credential goes in `X-API-Auth-Header`, never `Authorization`.**
+Rancher authenticates the incoming request itself and only falls back to the
+`R_SESS` cookie when `Authorization` is absent, so putting `PVEAPIToken=…` there
+makes Rancher reject the call with 401 before the proxy runs. The proxy copies
+`X-API-Auth-Header` into `Authorization` on the outbound request instead.
+
+**2. Only hosts in the `pve` NodeDriver's `whitelistDomains` are reachable.**
+Because every PVE install is at a different host, the credential form watches for
+`502`/`503` and offers a one-click *Add host to allow list and retry* button —
+the same pattern as Rancher's OpenStack example. The user needs the Manage Node
+Drivers permission for that. Rancher matches `url.Hostname()`, so the entry must
+be the bare hostname: `pve.example.com`, not `pve.example.com:8006`.
+
+**3. The proxy always verifies PVE's TLS certificate** against the Rancher
+server's trust store, using Go's default transport with no overrides. The
+credential's `Insecure TLS` / `CA Cert` are consumed by the *driver*, which
+connects to PVE directly, so they cannot help here — a stock PVE certificate
+fails until its CA is added to Rancher ([how
+to](https://github.com/Lore09/pve-rancher-driver/blob/master/docs/rancher-setup.md#make-rancher-trust-the-proxmox-ve-certificate)).
+
+Since none of this affects provisioning — the driver runs in the Rancher pod and
+never uses the proxy — an unreachable API degrades instead of blocking:
+
+- `cloud-credential/pve.vue` reports a warning rather than an error when the host
+  *is* allow-listed but unreachable, and still emits `validationChanged(true)` so
+  the credential can be saved.
+- `machine-config/pve.vue` sets `degraded`, swaps the node / template / storage /
+  bridge dropdowns for text inputs bound straight to the machine config, and
+  re-emits validity from watchers on the two required fields.
+
+Keep those two paths in mind when editing either form: an error that blocks
+`validationChanged` makes the credential unsavable, and a disabled
+`LabeledSelect` with no options makes a pool impossible to configure.
 
 ## Repository layout
 
