@@ -116,7 +116,7 @@ export default {
       return;
     }
 
-    this.nodes.options = res.map((n: any) => ({ label: n.node, value: n.node }));
+    this.nodes.options = res.map((n) => ({ label: n.node, value: n.node }));
     this.nodes.busy = false;
     this.nodes.enabled = true;
     this.nodes.selected = this.value?.node || this.nodes.options[0]?.value;
@@ -180,7 +180,7 @@ export default {
       ]);
 
       if (!tmpl.error) {
-        this.templates.options = tmpl.map((o: any) => ({
+        this.templates.options = tmpl.map((o) => ({
           label: `${ o.value.vmid } (${ o.value.name || 'unnamed' })`,
           value: Number(o.value.vmid),
         }));
