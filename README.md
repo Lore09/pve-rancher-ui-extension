@@ -76,6 +76,7 @@ pve-rancher-ui-extension/
       vue.config.js                       per-package build config
   .github/workflows/
     ci.yml                                yarn install + build-pkg on PRs
+    version-release.yml                   watches the version, tags, calls release
     release.yml                           build-pkg, publish to master, GitHub Release
 ```
 
@@ -112,29 +113,36 @@ for the wider context.
 
 ## Releasing
 
-The version in `pkg/pve/package.json` and the git tag must stay in lockstep —
-the workflow fails loudly if they disagree, because `@rancher/shell`'s publish
-script silently skips any package whose name does not match the release tag.
+**`version` in `pkg/pve/package.json` is the single source of truth.** Bumping it
+on `master` is the whole release procedure — there is no tag to create by hand:
 
 ```bash
-# 1. bump the version
 vim pkg/pve/package.json          # e.g. "version": "0.1.4"
 git commit -am "Bump version to 0.1.4"
 git push
-
-# 2. tag with the same semver, prefixed with v
-git tag v0.1.4
-git push origin v0.1.4
 ```
 
-Pushing the tag is the only trigger. The workflow then:
+`version-release.yml` picks it up from there and:
 
-1. verifies `v0.1.4` matches `pkg/pve/package.json`, failing the build otherwise,
-2. builds the extension and packages the Helm chart,
-3. commits `assets/`, `charts/`, `extensions/` and `index.yaml` to `master`,
+1. validates the new version is semver, actually changed, has not gone
+   backwards, and does not reuse an existing tag,
+2. creates and pushes the `v0.1.4` tag,
+3. calls `release.yml`, which builds the extension and packages the Helm chart,
+4. commits `assets/`, `charts/`, `extensions/` and `index.yaml` to `master`,
    preserving previously published versions,
-4. creates a GitHub Release for `v0.1.4` with auto-generated notes and the
+5. creates a GitHub Release for `v0.1.4` with auto-generated notes and the
    packaged chart attached.
+
+Because the tag is derived from the file, a release can never claim a version the
+extension does not. Pushing a `v*` tag manually does **not** start a release;
+`release.yml` is reachable only through `version-release.yml`.
+
+> The path filter on `version-release.yml` watches `pkg/pve/package.json` and
+> nothing else. That is what stops step 4's commit from re-triggering it and
+> looping forever — do not broaden it.
+
+The root `package.json` deliberately has no `version` field, so there is exactly
+one place a version can live.
 
 ## License
 
