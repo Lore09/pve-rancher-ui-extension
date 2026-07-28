@@ -42,6 +42,32 @@ chart can be installed directly without registering an Extension Repository.
 > dashboard auto-registers Vue components named after the driver
 > (`cloud-credential/pve.vue`, `machine-config/pve.vue`) via `importTypes()`.
 
+## Provider name and icon
+
+Rancher shows the driver as **Proxmox VE** with the Proxmox logo in the
+cluster-creation provider grid and the Cloud Credential type picker. Both come
+from this repo, not from the driver chart:
+
+- **Label and blurb**: the `cluster.provider.pve` and
+  `cluster.providerDescription.pve` keys in `pkg/pve/l10n/en-us.yaml`. Without
+  them the dashboard falls back to the raw driver name and renders `pve`.
+- **Icon**: `pkg/pve/icon.svg`, registered in `index.ts` as
+  `plugin.register('image', 'providers/pve.svg', require('./icon.svg'))`. The
+  dashboard checks the extension registry for `providers/<driverName>.svg` before
+  its own bundled assets, so this overrides the generic gear icon.
+
+To replace the icon, overwrite `pkg/pve/icon.svg` — the filename is what
+`index.ts` requires. The registered name `providers/pve.svg` is a lookup key, not
+a filename, and must keep saying `pve`.
+
+> The `pve` in both the l10n keys and the registered image name is the *driver
+> name*, which Rancher takes from the NodeDriver's `status.displayName` (i.e. the
+> binary name). It is **not** the `displayName` in the driver chart's
+> `values.yaml`. Renaming it here silently reverts the label to `pve`.
+
+The Node Drivers list page shows the name and description but no icon — the shell
+renders no icon slot there.
+
 ## Allow-lists and the 502 path
 
 Rancher only proxies to hosts explicitly listed in the `pve` NodeDriver's

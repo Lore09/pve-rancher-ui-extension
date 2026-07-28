@@ -1,3 +1,18 @@
+# Provider label and blurb shown wherever Rancher lists node drivers: the
+# cluster-creation provider grid, the Node Drivers list, and the Cloud Credential
+# type picker. Without these keys the dashboard falls back to the raw driver name
+# and renders "pve".
+#
+# The key MUST stay `pve`. Rancher derives it from the NodeDriver's
+# status.displayName, which comes from the driver binary's name — it is not the
+# `displayName` set in the driver chart's values.yaml. Renaming it here silently
+# breaks the lookup and reverts the label to "pve".
+cluster:
+  provider:
+    pve: Proxmox VE
+  providerDescription:
+    pve: Provision RKE2/K3s nodes as Proxmox VE virtual machines cloned from a template
+
 driver:
   pve:
     auth:
