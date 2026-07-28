@@ -17,11 +17,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'yarn'
+          node-version: '22'
 
+      # No yarn.lock is committed, so plain `yarn install` (yarn classic on the
+      # runner) generates one in-place and uses it for the rest of the run.
+      # `--network-timeout` gives npm registry hiccups some slack on cold runs.
       - name: Install dependencies
-        run: yarn install --immutable
+        run: yarn install --network-timeout 600000
 
       - name: Build
         run: yarn build
