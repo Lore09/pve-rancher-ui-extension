@@ -40,12 +40,29 @@ driver:
       connected: "Connected to Proxmox VE { version }"
       errors:
         notAllowed: "Rancher could not reach the Proxmox VE server — the host `{ hostname }` is not in the node driver allow list"
-        badGateway: "Rancher could not reach the Proxmox VE server — verify the URL uses https and the TLS certificate is signed by a known CA or supply a CA certificate"
         unauthorized: "Unauthorized — verify the API token ID and secret"
         other: "Rancher could not communicate with the Proxmox VE server"
+      warnings:
+        # Shown when the host *is* allow-listed but Rancher's proxy still cannot
+        # reach it. The usual cause is TLS: the proxy validates the PVE
+        # certificate against the Rancher server's trust store and has no way to
+        # skip it, so the fields above (which the driver honours) do not help
+        # here. Provisioning still works, hence a warning and not an error.
+        proxyUnverified: "Credentials accepted, but Rancher's UI proxy could not reach or verify `{ hostname }` — usually because the Rancher server does not trust the Proxmox VE certificate. Provisioning is unaffected: the driver connects to Proxmox VE directly and honours the TLS options above. The machine pool dropdowns will be empty, so enter the node, template, storage and bridge by hand. To populate them, add the Proxmox VE CA to the Rancher server's trusted CAs."
     machine:
       title: Proxmox VE Configuration
       loading: Loading resources from the Proxmox VE server...
+      errors:
+        # Shown in place of the dropdowns when the PVE API cannot be reached
+        # through Rancher's proxy. Rendered as a warning, not an error: the
+        # driver talks to PVE directly, so a pool configured by hand provisions
+        # normally. See `auth.warnings.proxyUnverified`.
+        unreachable: "Could not list resources from the Proxmox VE API — Rancher's UI proxy cannot reach it, usually because the Rancher server does not trust the Proxmox VE certificate. Enter the node, template VMID, storage and bridge by hand; provisioning does not use this proxy and is unaffected."
+      placeholders:
+        node: "pve1 — as shown under Datacenter in the PVE UI"
+        template: "9000"
+        extraDiskStorage: "local-lvm"
+        netBridge: "vmbr0"
       fields:
         node: Target PVE Node
         template: Source Template (VMID)

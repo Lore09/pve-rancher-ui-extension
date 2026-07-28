@@ -110,8 +110,15 @@ export default {
     this.authenticating = false;
 
     if (res.error) {
-      this.errors.push(stringify(res.error));
-      this.$emit('validationChanged', false);
+      // The PVE API is not reachable through Rancher's /meta/proxy — typically
+      // because the Rancher server does not trust the PVE certificate, which the
+      // proxy always verifies and cannot be told to skip. The driver itself does
+      // not use this proxy, so provisioning still works; fall back to typing the
+      // four discovered fields by hand instead of blocking the form. The cloud
+      // credential surfaces the same condition as a warning.
+      this.degraded = true;
+      this.errors.push(this.t('driver.pve.machine.errors.unreachable'));
+      this.emitDegradedValidation();
 
       return;
     }
@@ -132,6 +139,9 @@ export default {
     return {
       authenticating:  false,
       ready:           false,
+      // True when the PVE API could not be reached: the dropdowns are replaced
+      // by free-text inputs bound straight to the machine config.
+      degraded:        false,
       api:             null,
       credential:      null,
       nodes:           initOptions(),
@@ -152,10 +162,33 @@ export default {
         this.loadNodeSpecific(node);
       }
     },
+
+    // In degraded mode the two required fields are typed rather than picked, so
+    // validity has to be re-reported as they change.
+    'value.node'() {
+      this.emitDegradedValidation();
+    },
+
+    'value.templateVmid'() {
+      this.emitDegradedValidation();
+    },
   },
 
   methods: {
     stringify,
+
+    /**
+     * Node and template are the only fields the driver cannot default, so in
+     * degraded mode they decide whether the pool is valid. No-op when the
+     * dropdowns loaded normally, where `fetch` already reported validity.
+     */
+    emitDegradedValidation() {
+      if (!this.degraded) {
+        return;
+      }
+
+      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid);
+    },
 
     fakeSelectOptions(list, value) {
       list.busy = false;
@@ -204,6 +237,12 @@ export default {
     },
 
     test() {
+      // In degraded mode the inputs are bound to `value` directly and the
+      // selects hold nothing, so copying them across would wipe what was typed.
+      if (this.degraded) {
+        return;
+      }
+
       // Syncs the form values into the bound machine-config object.
       this.value.node             = this.nodes.selected || '';
       this.value.templateVmid     = this.templates.selected ?? this.value?.templateVmid ?? 0;
@@ -226,7 +265,7 @@ export default {
         :key="idx"
       >
         <Banner
-          color="error"
+          :color="degraded ? 'warning' : 'error'"
           :label="stringify(err)"
         />
       </div>
@@ -250,6 +289,7 @@ export default {
     <div class="row mt-10">
       <div class="col span-6">
         <LabeledSelect
+          v-if="!degraded"
           v-model:value="nodes.selected"
           label-key="driver.pve.machine.fields.node"
           :options="nodes.options"
@@ -257,15 +297,35 @@ export default {
           :loading="nodes.busy"
           :searchable="true"
         />
+        <LabeledInput
+          v-else
+          v-model:value="value.node"
+          :mode="mode"
+          :disabled="busy"
+          label-key="driver.pve.machine.fields.node"
+          :placeholder="t('driver.pve.machine.placeholders.node')"
+          required
+        />
       </div>
       <div class="col span-6">
         <LabeledSelect
+          v-if="!degraded"
           v-model:value="templates.selected"
           label-key="driver.pve.machine.fields.template"
           :options="templates.options"
           :disabled="!templates.enabled || busy"
           :loading="templates.busy"
           :searchable="true"
+        />
+        <LabeledInput
+          v-else
+          v-model:value.number="value.templateVmid"
+          type="number"
+          :mode="mode"
+          :disabled="busy"
+          label-key="driver.pve.machine.fields.template"
+          :placeholder="t('driver.pve.machine.placeholders.template')"
+          required
         />
       </div>
     </div>
@@ -321,6 +381,7 @@ export default {
       </div>
       <div class="col span-4">
         <LabeledSelect
+          v-if="!degraded"
           v-model:value="storage.selected"
           label-key="driver.pve.machine.fields.extraDiskStorage"
           :options="storage.options"
@@ -328,18 +389,35 @@ export default {
           :loading="storage.busy"
           :searchable="true"
         />
+        <LabeledInput
+          v-else
+          v-model:value="value.extraDiskStorage"
+          :mode="mode"
+          :disabled="busy"
+          label-key="driver.pve.machine.fields.extraDiskStorage"
+          :placeholder="t('driver.pve.machine.placeholders.extraDiskStorage')"
+        />
       </div>
     </div>
 
     <div class="row mt-10">
       <div class="col span-6">
         <LabeledSelect
+          v-if="!degraded"
           v-model:value="bridges.selected"
           label-key="driver.pve.machine.fields.netBridge"
           :options="bridges.options"
           :disabled="!bridges.enabled || busy"
           :loading="bridges.busy"
           :searchable="true"
+        />
+        <LabeledInput
+          v-else
+          v-model:value="value.netBridge"
+          :mode="mode"
+          :disabled="busy"
+          label-key="driver.pve.machine.fields.netBridge"
+          :placeholder="t('driver.pve.machine.placeholders.netBridge')"
         />
       </div>
       <div class="col span-6">

@@ -43,6 +43,7 @@ export default {
       busy:            false,
       allowBusy:       false,
       error:           '',
+      warning:         '',
       errorAllowHost:  false,
       versionInfo:     null,
     };
@@ -71,6 +72,7 @@ export default {
       this.step = 1;
       this.errorAllowHost = false;
       this.error = '';
+      this.warning = '';
       this.versionInfo = null;
       this.$emit('validationChanged', false);
     },
@@ -90,11 +92,18 @@ export default {
 
     /**
      * "Test Connection": fetch /api2/json/version through the Rancher proxy.
-     * On success the credential is considered valid; on 502 we know the host
-     * is not in the allow-list and offer the one-click fix.
+     *
+     * A gateway failure means one of two things, told apart by the allow-list:
+     * the host is not allow-listed (offer the one-click fix), or it is and the
+     * proxy still could not reach it — nearly always because Rancher's proxy
+     * verifies the PVE certificate against the Rancher server's trust store
+     * and, unlike the driver, cannot be told to skip it. The latter blocks the
+     * machine-pool dropdowns but not provisioning, so it is a warning rather
+     * than a validation failure; see `warnings.proxyUnverified`.
      */
     async connect(cb) {
       this.error = '';
+      this.warning = '';
       this.errorAllowHost = false;
 
       let okay = false;
@@ -117,18 +126,24 @@ export default {
       const res = await api.getVersion();
 
       if (res.error) {
-        this.step = 1;
         this.versionInfo = null;
 
         const status = res.error._status;
+        const gateway = status === 502 || status === 503;
 
-        if ((status === 502 || status === 503) && !api.hostInAllowList(this.driver)) {
+        if (gateway && !api.hostInAllowList(this.driver)) {
+          this.step = 1;
           this.errorAllowHost = true;
-        } else if (status === 502 || status === 503) {
-          this.error = this.t('driver.pve.auth.errors.badGateway');
+        } else if (gateway) {
+          // Allow-listed but unreachable: let the credential through, since the
+          // driver reaches PVE directly and honours the TLS fields above.
+          this.warning = this.t('driver.pve.auth.warnings.proxyUnverified', { hostname: this.hostname });
+          okay = true;
         } else if (status === 401 || status === 403) {
+          this.step = 1;
           this.error = this.t('driver.pve.auth.errors.unauthorized');
         } else {
+          this.step = 1;
           this.error = res.error.message || this.t('driver.pve.auth.errors.other');
         }
       } else {
@@ -241,6 +256,14 @@ export default {
       color="error"
     >
       {{ error }}
+    </Banner>
+
+    <Banner
+      v-if="warning"
+      class="mt-20"
+      color="warning"
+    >
+      {{ warning }}
     </Banner>
 
     <Banner
