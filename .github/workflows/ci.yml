@@ -22,5 +22,8 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --network-timeout 600000
 
-      - name: Build
-        run: yarn build
+      # `yarn build` runs the full-dashboard build which expects a dashboard
+      # monorepo layout. Extension repos use `yarn build-pkg <name>` which
+      # sets up the .shell symlink and compiles only the package.
+      - name: Build extension package
+        run: yarn build-pkg pve
