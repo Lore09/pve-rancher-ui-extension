@@ -28,6 +28,14 @@ on:
 permissions:
   contents: write
 
+# Releases push commits to master. Two tags landing close together would other
+# wise race, and the loser would die on a non-fast-forward push - losing that
+# release's chart assets entirely. Queue them instead of cancelling, since a
+# cancelled release is a half-published one.
+concurrency:
+  group: publish-master
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -37,12 +45,15 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.ref }}
 
-      - name: Enable Corepack
-        run: corepack enable
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # Must come after setup-node: enabling Corepack against the runner's
+      # preinstalled Node has no effect once setup-node swaps in the toolcache
+      # Node 22 that actually runs the build.
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -54,26 +65,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
 
-      # @rancher/shell's publish script calls BSD `md5 -q`, which doesn't exist
-      # on Ubuntu runners (only `md5sum`). Install a tiny shim so the existing
-      # chart comparison loop does not crash on first run.
-      - name: Provide BSD-style md5 shim
-        run: |
-          set -eu
-          sudo tee /usr/local/bin/md5 >/dev/null <<'EOF'
-          #!/usr/bin/env bash
-          # Shim BSD's `md5 -q <file>` → bare MD5, plus wholesale forwarding of
-          # other invocations to md5sum.
-          if [ "$1" = "-q" ]; then
-            md5sum "$2" | awk '{print $1}'
-          else
-            md5sum "$@"
-          fi
-          EOF
-          sudo chmod +x /usr/local/bin/md5
-
+      # yarn.lock here is `lockfile v1` (Yarn 1 classic), which has no
+      # `--immutable` flag — it accepted and ignored it, so the lockfile was
+      # never actually enforced. `--frozen-lockfile` is the Yarn 1 equivalent.
       - name: Install dependencies
-        run: yarn install --immutable --network-timeout 600000
+        run: yarn install --frozen-lockfile --network-timeout 600000
 
       # The publish script expects a release tag matching `<pkg-name>-<version>`
       # (e.g. `pve-0.1.0`). We use the `v0.1.0` convention for git tags and
@@ -102,7 +98,63 @@ jobs:
 
           echo "release_tag=pve-${PKG_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and publish extension charts
-        run: yarn publish-pkgs -s ${{ github.repository }} -b master -t ${{ steps.tag.outputs.release_tag }}
+      # `-n` skips the publish script's "check existing charts for updates" loop.
+      # We always check out a tag, so `assets/` is never present in the runner and
+      # that loop can only iterate over an unexpanded `*/*.tgz` glob — producing a
+      # wall of bogus tar/md5/yq errors and, worse, spuriously setting the script's
+      # BUILT flag. That flag defeats the script's own guard that exits non-zero
+      # when the release tag matches no package, so skipping the loop is what makes
+      # a tag/version mismatch actually fail the job.
+      - name: Build extension charts
+        run: yarn publish-pkgs -n -s ${{ github.repository }} -b master -t ${{ steps.tag.outputs.release_tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The publish script only writes artifacts into the working tree and mirrors
+      # them into tmp/ — it never pushes. This step is the actual publish: overlay
+      # tmp/ onto master so Rancher can consume the repo at that branch.
+      - name: Publish chart artifacts to master
+        run: |
+          set -euo pipefail
+
+          if [ ! -d tmp/assets ]; then
+            echo "::error::publish produced no artifacts in tmp/ - nothing to release"
+            exit 1
+          fi
+
+          # Stash artifacts outside the work tree. We are on a detached tag, and
+          # once master carries a published assets/ the branch switch below would
+          # otherwise refuse to overwrite these untracked paths.
+          STAGING="$(mktemp -d)"
+          cp -r tmp/. "$STAGING/"
+          rm -rf tmp assets charts extensions index.yaml
+
+          # Explicit refspec: checkout ran against a tag, so the origin/master
+          # remote-tracking ref is not guaranteed to exist yet.
+          git fetch origin master:refs/remotes/origin/master
+          git checkout -B master origin/master
+
+          # Overlay rather than replace: previously published versions must survive,
+          # since the Helm index on master references all of them.
+          for DIR in assets charts extensions; do
+            if [ -d "$STAGING/$DIR" ]; then
+              mkdir -p "$DIR"
+              cp -r "$STAGING/$DIR/." "$DIR/"
+            fi
+          done
+          # index.yaml is regenerated by the publish script merged against the copy
+          # it fetched from master, so it is already cumulative - replace wholesale.
+          if [ -f "$STAGING/index.yaml" ]; then
+            cp "$STAGING/index.yaml" index.yaml
+          fi
+
+          git add assets charts extensions index.yaml
+
+          if git diff --cached --quiet; then
+            echo "::error::no chart changes staged for ${{ steps.tag.outputs.release_tag }} - refusing to report a successful release"
+            exit 1
+          fi
+
+          # [skip ci] avoids kicking off the CI workflow for a chart-only commit.
+          git commit -m "chore(release): publish ${{ steps.tag.outputs.release_tag }} chart [skip ci]"
+          git push origin HEAD:master

@@ -1,9 +1,24 @@
 name: CI
 
+# The Release workflow commits generated chart artifacts back to master. Those
+# commits carry [skip ci], but path filters are the durable guard — they also
+# cover anyone hand-editing published assets.
+# Duplicated rather than shared via a YAML anchor: the Actions workflow parser
+# does not officially support anchors/aliases.
 on:
   pull_request:
+    paths-ignore:
+      - 'assets/**'
+      - 'charts/**'
+      - 'extensions/**'
+      - 'index.yaml'
   push:
     branches: [master]
+    paths-ignore:
+      - 'assets/**'
+      - 'charts/**'
+      - 'extensions/**'
+      - 'index.yaml'
 
 defaults:
   run:
@@ -19,8 +34,10 @@ jobs:
         with:
           node-version: '22'
 
+      # yarn.lock is `lockfile v1` (Yarn 1 classic) - `--immutable` is a Berry
+      # flag and was silently ignored here, so the lockfile went unenforced.
       - name: Install dependencies
-        run: yarn install --immutable --network-timeout 600000
+        run: yarn install --frozen-lockfile --network-timeout 600000
 
       # `yarn build` runs the full-dashboard build which expects a dashboard
       # monorepo layout. Extension repos use `yarn build-pkg <name>` which
