@@ -4,10 +4,14 @@ import { Banner } from '@components/Banner';
 import CreateEditView from '@shell/mixins/create-edit-view';
 import LabeledSelect from '@shell/components/form/LabeledSelect';
 import { LabeledInput } from '@components/Form/LabeledInput';
+import { Checkbox } from '@components/Form/Checkbox';
 import { NORMAN, SECRET } from '@shell/config/types';
 import { stringify } from '@shell/utils/error';
 import { _VIEW } from '@shell/config/query-params';
 import { PveApi } from '../pve.ts';
+import {
+  FS_OPTIONS, emptyRow, parseRow, rowError, serializeRow,
+} from '../disk-spec.ts';
 
 function initOptions() {
   return {
@@ -20,7 +24,7 @@ function initOptions() {
 
 export default {
   components: {
-    Banner, Loading, LabeledInput, LabeledSelect,
+    Banner, Checkbox, Loading, LabeledInput, LabeledSelect,
   },
 
   mixins: [CreateEditView],
@@ -59,6 +63,8 @@ export default {
 
   async fetch() {
     this.errors = [];
+    this.diskRows = (this.value?.dataDisk || []).map((entry) => parseRow(entry));
+
     if ( !this.credentialId ) {
       return;
     }
@@ -66,7 +72,6 @@ export default {
     if (this.mode === _VIEW) {
       this.fakeSelectOptions(this.nodes, this.value?.node);
       this.fakeSelectOptions(this.templates, this.value?.templateVmid);
-      this.fakeSelectOptions(this.storage, this.value?.extraDiskStorage);
       this.fakeSelectOptions(this.bridges, this.value?.netBridge);
 
       return;
@@ -149,6 +154,8 @@ export default {
       storage:         initOptions(),
       bridges:         initOptions(),
       errors:          null,
+      diskRows:        [],
+      fsOptions:       FS_OPTIONS,
     };
   },
 
@@ -172,6 +179,16 @@ export default {
     'value.templateVmid'() {
       this.emitDegradedValidation();
     },
+
+    // A row with an invalid size, storage or mount path must block saving: the
+    // driver would reject the same value in PreCreateCheck, but only after the
+    // pool has already been created.
+    diskRows: {
+      deep: true,
+      handler() {
+        this.$emit('validationChanged', this.diskRowsValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
+      },
+    },
   },
 
   methods: {
@@ -187,7 +204,24 @@ export default {
         return;
       }
 
-      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid);
+      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid && this.diskRowsValid());
+    },
+
+    addDiskRow() {
+      this.diskRows.push(emptyRow());
+    },
+
+    removeDiskRow(idx) {
+      this.diskRows.splice(idx, 1);
+    },
+
+    diskRowError(row) {
+      return rowError(row);
+    },
+
+    /** Every row must be valid before the pool can be saved. */
+    diskRowsValid() {
+      return this.diskRows.every((row) => rowError(row) === '');
     },
 
     fakeSelectOptions(list, value) {
@@ -222,8 +256,12 @@ export default {
       }
 
       if (!stor.error) {
-        this.storage.options = stor;
-        this.storage.selected = this.value?.extraDiskStorage || this.storage.options[0]?.value;
+        // toOptions() sets `value` to the whole PVE object; the machine config
+        // needs the storage id string, so map it down here.
+        this.storage.options = stor.map((o) => ({
+          label: o.value.storage,
+          value: o.value.storage,
+        }));
         this.storage.enabled = true;
       }
 
@@ -237,6 +275,10 @@ export default {
     },
 
     test() {
+      // Rows are serialized even in degraded mode: they are typed by hand there
+      // too, and unlike the selects they hold real values.
+      this.value.dataDisk = this.diskRows.map((row) => serializeRow(row));
+
       // In degraded mode the inputs are bound to `value` directly and the
       // selects hold nothing, so copying them across would wipe what was typed.
       if (this.degraded) {
@@ -244,10 +286,9 @@ export default {
       }
 
       // Syncs the form values into the bound machine-config object.
-      this.value.node             = this.nodes.selected || '';
-      this.value.templateVmid     = this.templates.selected ?? this.value?.templateVmid ?? 0;
-      this.value.extraDiskStorage = this.storage.selected || '';
-      this.value.netBridge        = this.bridges.selected || '';
+      this.value.node         = this.nodes.selected || '';
+      this.value.templateVmid = this.templates.selected ?? this.value?.templateVmid ?? 0;
+      this.value.netBridge    = this.bridges.selected || '';
     },
   },
 };
@@ -363,41 +404,110 @@ export default {
     <div class="row mt-10">
       <div class="col span-4">
         <LabeledInput
-          v-model:value="value.disk"
+          v-model:value="value.bootDiskSize"
           type="number"
           :mode="mode"
           :disabled="busy"
-          label-key="driver.pve.machine.fields.disk"
+          label-key="driver.pve.machine.fields.bootDiskSize"
         />
       </div>
-      <div class="col span-4">
-        <LabeledInput
-          v-model:value="value.extraDiskSize"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.extraDiskSize"
-        />
+    </div>
+
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.fields.dataDisks') }}
       </div>
-      <div class="col span-4">
-        <LabeledSelect
-          v-if="!degraded"
-          v-model:value="storage.selected"
-          label-key="driver.pve.machine.fields.extraDiskStorage"
-          :options="storage.options"
-          :disabled="!storage.enabled || busy"
-          :loading="storage.busy"
-          :searchable="true"
-        />
-        <LabeledInput
-          v-else
-          v-model:value="value.extraDiskStorage"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.extraDiskStorage"
-          :placeholder="t('driver.pve.machine.placeholders.extraDiskStorage')"
-        />
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.dataDisks') }}
+      </p>
+
+      <div
+        v-for="(row, idx) in diskRows"
+        :key="idx"
+        class="disk-row row mb-10"
+      >
+        <div class="col span-2">
+          <LabeledInput
+            v-model:value.number="row.size"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.diskSize"
+          />
+        </div>
+        <div class="col span-3">
+          <LabeledSelect
+            v-if="!degraded"
+            v-model:value="row.storage"
+            label-key="driver.pve.machine.fields.diskStorage"
+            :options="storage.options"
+            :disabled="!storage.enabled || busy"
+            :loading="storage.busy"
+            :searchable="true"
+          />
+          <LabeledInput
+            v-else
+            v-model:value="row.storage"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.diskStorage"
+            :placeholder="t('driver.pve.machine.placeholders.diskStorage')"
+          />
+        </div>
+        <div class="col span-2">
+          <LabeledSelect
+            v-model:value="row.fs"
+            label-key="driver.pve.machine.fields.diskFs"
+            :options="fsOptions"
+            :disabled="busy"
+          />
+        </div>
+        <div class="col span-3">
+          <LabeledInput
+            v-model:value="row.mount"
+            :mode="mode"
+            :disabled="busy || row.fs === 'none'"
+            label-key="driver.pve.machine.fields.diskMount"
+            :placeholder="t('driver.pve.machine.placeholders.diskMount')"
+          />
+        </div>
+        <div class="col span-1 disk-row__backup">
+          <Checkbox
+            v-model:value="row.backup"
+            :mode="mode"
+            :disabled="busy"
+            :label="t('driver.pve.machine.fields.diskBackup')"
+          />
+        </div>
+        <div class="col span-1 disk-row__remove">
+          <button
+            type="button"
+            class="btn role-link"
+            :disabled="busy"
+            @click="removeDiskRow(idx)"
+          >
+            {{ t('driver.pve.machine.actions.removeDisk') }}
+          </button>
+        </div>
+        <div
+          v-if="diskRowError(row)"
+          class="col span-12"
+        >
+          <Banner
+            color="error"
+            :label="diskRowError(row)"
+          />
+        </div>
       </div>
+
+      <button
+        type="button"
+        class="btn role-tertiary"
+        :disabled="busy"
+        @click="addDiskRow"
+      >
+        {{ t('driver.pve.machine.actions.addDisk') }}
+      </button>
     </div>
 
     <div class="row mt-10">
@@ -471,6 +581,16 @@ export default {
       > i {
         margin-right: 4px;
       }
+    }
+  }
+
+  .disk-row {
+    align-items: flex-start;
+
+    &__backup, &__remove {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
     }
   }
 </style>
