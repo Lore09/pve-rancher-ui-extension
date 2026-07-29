@@ -61,17 +61,29 @@ driver:
       placeholders:
         node: "pve1 — as shown under Datacenter in the PVE UI"
         template: "9000"
-        extraDiskStorage: "local-lvm"
+        diskMount: "/var/lib/longhorn"
+        diskStorage: "local-lvm"
         netBridge: "vmbr0"
+      actions:
+        addDisk: Add Data Disk
+        removeDisk: Remove
+      hints:
+        # Explains the division of labour the driver implements, so nobody goes
+        # looking for a cloud-init drop-in to do it.
+        dataDisks: Each disk is attached to the VM and, unless the filesystem is "none", formatted and mounted at the given path by the driver before the node joins the cluster.
       fields:
         node: Target PVE Node
         template: Source Template (VMID)
         cores: CPU Cores
         sockets: CPU Sockets
         memory: Memory (MB)
-        disk: Boot Disk Size (GB)
-        extraDiskSize: Extra Disk Size (GB)
-        extraDiskStorage: Extra Disk Storage
+        bootDiskSize: Boot Disk Size (GB)
+        dataDisks: Data Disks
+        diskSize: Size (GB)
+        diskStorage: Storage
+        diskFs: Filesystem
+        diskMount: Mount Path
+        diskBackup: Include in PVE backups
         netBridge: Network Bridge
         netModel: NIC Model
         netVlanTag: VLAN Tag
