@@ -420,7 +420,7 @@ export default {
       ];
 
       const stringFields = [
-        'node', 'vmid', 'templateVmid', 'vmNamePrefix',
+        'node', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout',
         'netIface', 'netDevice', 'netBridge', 'netModel',
@@ -489,7 +489,7 @@ export default {
     </div>
 
     <div class="row mt-10">
-      <div class="col span-4">
+      <div class="col span-3">
         <LabeledSelect
           v-if="!degraded"
           v-model:value="nodes.selected"
@@ -509,7 +509,7 @@ export default {
           required
         />
       </div>
-      <div class="col span-4">
+      <div class="col span-3">
         <LabeledSelect
           v-if="!degraded"
           v-model:value="templates.selected"
@@ -530,7 +530,17 @@ export default {
           required
         />
       </div>
-      <div class="col span-4">
+      <div class="col span-3">
+        <LabeledInput
+          v-model:value="value.vmidRange"
+          :mode="mode"
+          :disabled="busy"
+          label-key="driver.pve.machine.fields.vmidRange"
+          :placeholder="t('driver.pve.machine.placeholders.vmidRange')"
+          :tooltip="t('driver.pve.machine.hints.vmidRange')"
+        />
+      </div>
+      <div class="col span-3">
         <LabeledInput
           v-model:value="value.vmNamePrefix"
           :mode="mode"

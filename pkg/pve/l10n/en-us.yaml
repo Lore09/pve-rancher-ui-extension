@@ -71,6 +71,7 @@ driver:
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
         vmNamePrefix: "k8s — optional"
+        vmidRange: "200-299 — optional"
         vmUser: "debian for Debian, rancher for Leap Micro"
       actions:
         addDisk: Add Data Disk
@@ -84,6 +85,7 @@ driver:
         # letting people fill in a VLAN that is silently dropped.
         networking: Leave the bridge empty to inherit the template's network untouched. The remaining fields are only applied when a bridge is set.
         cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects. Nodes always use DHCP; the driver discovers the address through the QEMU guest agent.
+        vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep a cluster's VMs in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
         vmNamePrefix: Prepended to the name Rancher generates, as <prefix>-<machine name>. Useful for grouping this cluster's VMs in the Proxmox list. Letters, digits and inner hyphens only.
         vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the image's login user — debian for Debian's cloud image, rancher for Leap Micro."
       fs:
@@ -119,4 +121,5 @@ driver:
         cloudInitEnabled: Configure cloud-init
         vmUser: VM User
         vmNamePrefix: VM Name Prefix
+        vmidRange: VMID Range
         sshPort: SSH Port
