@@ -18,6 +18,12 @@
     "ip": "2.0.1",
     "node-polyfill-webpack-plugin": "3.0.0"
   },
+  "devDependencies": {
+    "@babel/preset-env": "7.29.7",
+    "@babel/preset-typescript": "7.16.7",
+    "babel-jest": "27.5.1",
+    "jest": "27.5.1"
+  },
   "resolutions": {
     "@types/node": "20.10.8",
     "@types/lodash": "4.17.5"
@@ -29,6 +35,7 @@
     "build-pkg": "./node_modules/@rancher/shell/scripts/build-pkg.sh",
     "serve-pkgs": "./node_modules/@rancher/shell/scripts/serve-pkgs",
     "publish-pkgs": "./node_modules/@rancher/shell/scripts/extension/publish",
-    "parse-tag-name": "./node_modules/@rancher/shell/scripts/extension/parse-tag-name"
+    "parse-tag-name": "./node_modules/@rancher/shell/scripts/extension/parse-tag-name",
+    "test:unit": "jest"
   }
 }
