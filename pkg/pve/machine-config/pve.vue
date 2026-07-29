@@ -391,31 +391,57 @@ export default {
     },
 
     /**
-     * Rancher's rke-machine-config CRDs declare **every** field as a string,
-     * numbers and booleans included. A number input or a checkbox binds a real
-     * number or boolean, and the API then rejects the entire object with
-     * `must be of type string: "integer"`. Coercing once here, on the way out,
-     * is more reliable than remembering to do it at each binding.
+     * Coerce the machine config to the types its CRD actually declares.
      *
-     * `dataDisk` is absent from the list on purpose: it is an array of
-     * strings, which is exactly what the CRD expects.
+     * Rancher generates that CRD from the driver's flags, and the mapping is
+     * not uniform — confirmed by the two rejections it produces:
+     *
+     *   mcnflag.IntFlag  -> string   `templateVmid must be of type string: "integer"`
+     *   mcnflag.BoolFlag -> boolean  `cloudinit must be of type boolean: "string"`
+     *
+     * So a number input binding a real number is rejected, and so is a
+     * checkbox coerced to "true". Fixing it once on the way out is more
+     * reliable than getting every individual binding right.
+     *
+     * `dataDisk` is in neither list on purpose: it is already an array of
+     * strings, which is what the CRD expects.
+     *
+     * To re-check the real types after a flag change:
+     *   kubectl get crd pveconfigs.rke-machine-config.cattle.io -o json \
+     *     | jq -r '.spec.versions[0].schema.openAPIV3Schema.properties
+     *              | to_entries[] | "\(.key)\t\(.value.type)"'
      */
     stringifyScalars() {
-      // Explicit list rather than every key of `value`: the bound object is a
+      // Explicit lists rather than every key of `value`: the bound object is a
       // Steve resource that also carries metadata, links and actions, and
       // rewriting those would be at best pointless and at worst destructive.
-      const fields = [
+      const booleanFields = [
+        'cloudinit', 'onboot', 'skipPermissionCheck', 'keepOnFailure',
+      ];
+
+      const stringFields = [
         'node', 'vmid', 'templateVmid', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout',
         'netIface', 'netDevice', 'netBridge', 'netModel',
         'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout',
-        'cloudinit', 'ipconfig', 'ciuser', 'sshkeys', 'onboot',
-        'skipPermissionCheck', 'keepOnFailure',
+        'ipconfig', 'ciuser', 'sshkeys',
         'sshUser', 'sshPort',
       ];
 
-      fields.forEach((key) => {
+      booleanFields.forEach((key) => {
+        const v = this.value?.[key];
+
+        if (v === undefined) {
+          return;
+        }
+
+        // A config saved by an older build may hold the string "false", and
+        // !!'false' is true — so parse strings rather than test truthiness.
+        this.value[key] = typeof v === 'string' ? v === 'true' : !!v;
+      });
+
+      stringFields.forEach((key) => {
         const v = this.value?.[key];
 
         if (v === undefined) {
