@@ -183,11 +183,43 @@ export default {
     // A row with an invalid size, storage or mount path must block saving: the
     // driver would reject the same value in PreCreateCheck, but only after the
     // pool has already been created.
+    'value.cloudinit'() {
+      this.$emit('validationChanged', this.diskRowsValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
+    },
+
     diskRows: {
       deep: true,
       handler() {
         this.$emit('validationChanged', this.diskRowsValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
       },
+    },
+  },
+
+  computed: {
+    /**
+     * The pve-net-* knobs are only written while rewriting the NIC, which the
+     * driver only does when a bridge is named — it rejects the pool otherwise.
+     * Mirror that here so the fields cannot be filled in uselessly.
+     */
+    netOptionsEnabled() {
+      return this.degraded ? !!this.value?.netBridge : !!this.bridges.selected;
+    },
+
+    /**
+     * Tri-state: empty means "leave PVE's own default alone", which a checkbox
+     * cannot express and which the driver treats as distinct from false.
+     */
+    firewallOptions() {
+      return [
+        { label: this.t('driver.pve.machine.firewall.default'), value: '' },
+        { label: this.t('driver.pve.machine.firewall.enabled'), value: 'true' },
+        { label: this.t('driver.pve.machine.firewall.disabled'), value: 'false' },
+      ];
+    },
+
+    /** True when any data disk asks for a filesystem, which requires cloud-init. */
+    needsCloudInit() {
+      return this.diskRows.some((row) => row.fs !== 'none');
     },
   },
 
@@ -219,8 +251,16 @@ export default {
       return rowError(row);
     },
 
-    /** Every row must be valid before the pool can be saved. */
+    /**
+     * Every row must be valid before the pool can be saved, and a disk that
+     * wants a filesystem needs cloud-init: the driver formats and mounts it
+     * over SSH with the key cloud-init injects, and rejects the pool otherwise.
+     */
     diskRowsValid() {
+      if (this.needsCloudInit && !this.value?.cloudinit) {
+        return false;
+      }
+
       return this.diskRows.every((row) => rowError(row) === '');
     },
 
@@ -279,6 +319,14 @@ export default {
       // too, and unlike the selects they hold real values.
       this.value.dataDisk = this.diskRows.map((row) => serializeRow(row));
 
+      // The driver hard-fails when a VLAN tag, MTU or firewall setting is given
+      // without a bridge. Clear them rather than shipping a pool it will reject.
+      if (!this.netOptionsEnabled) {
+        this.value.netVlanTag = 0;
+        this.value.netMtu = 0;
+        this.value.netFirewall = '';
+      }
+
       // In degraded mode the inputs are bound to `value` directly and the
       // selects hold nothing, so copying them across would wipe what was typed.
       if (this.degraded) {
@@ -328,7 +376,7 @@ export default {
     </div>
 
     <div class="row mt-10">
-      <div class="col span-6">
+      <div class="col span-4">
         <LabeledSelect
           v-if="!degraded"
           v-model:value="nodes.selected"
@@ -348,7 +396,7 @@ export default {
           required
         />
       </div>
-      <div class="col span-6">
+      <div class="col span-4">
         <LabeledSelect
           v-if="!degraded"
           v-model:value="templates.selected"
@@ -367,6 +415,16 @@ export default {
           label-key="driver.pve.machine.fields.template"
           :placeholder="t('driver.pve.machine.placeholders.template')"
           required
+        />
+      </div>
+      <div class="col span-4">
+        <LabeledInput
+          v-model:value="value.vmName"
+          :mode="mode"
+          :disabled="busy"
+          label-key="driver.pve.machine.fields.vmName"
+          :placeholder="uuid"
+          :tooltip="t('driver.pve.machine.hints.vmName')"
         />
       </div>
     </div>
@@ -424,80 +482,79 @@ export default {
       <div
         v-for="(row, idx) in diskRows"
         :key="idx"
-        class="disk-row row mb-10"
+        class="disk-entry mb-10"
       >
-        <div class="col span-2">
-          <LabeledInput
-            v-model:value.number="row.size"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.diskSize"
-          />
+        <div class="disk-row row">
+          <div class="col span-2">
+            <LabeledInput
+              v-model:value.number="row.size"
+              type="number"
+              :mode="mode"
+              :disabled="busy"
+              label-key="driver.pve.machine.fields.diskSize"
+            />
+          </div>
+          <div class="col span-3">
+            <LabeledSelect
+              v-if="!degraded"
+              v-model:value="row.storage"
+              label-key="driver.pve.machine.fields.diskStorage"
+              :options="storage.options"
+              :disabled="!storage.enabled || busy"
+              :loading="storage.busy"
+              :searchable="true"
+            />
+            <LabeledInput
+              v-else
+              v-model:value="row.storage"
+              :mode="mode"
+              :disabled="busy"
+              label-key="driver.pve.machine.fields.diskStorage"
+              :placeholder="t('driver.pve.machine.placeholders.diskStorage')"
+            />
+          </div>
+          <div class="col span-2">
+            <LabeledSelect
+              v-model:value="row.fs"
+              label-key="driver.pve.machine.fields.diskFs"
+              :options="fsOptions"
+              :disabled="busy"
+            />
+          </div>
+          <div class="col span-3">
+            <LabeledInput
+              v-model:value="row.mount"
+              :mode="mode"
+              :disabled="busy || row.fs === 'none'"
+              label-key="driver.pve.machine.fields.diskMount"
+              :placeholder="t('driver.pve.machine.placeholders.diskMount')"
+            />
+          </div>
+          <div class="col span-1 disk-row__backup">
+            <Checkbox
+              v-model:value="row.backup"
+              :mode="mode"
+              :disabled="busy"
+              :label="t('driver.pve.machine.fields.diskBackup')"
+            />
+          </div>
+          <div class="col span-1 disk-row__remove">
+            <button
+              type="button"
+              class="btn role-link"
+              :disabled="busy"
+              @click="removeDiskRow(idx)"
+            >
+              {{ t('driver.pve.machine.actions.removeDisk') }}
+            </button>
+          </div>
         </div>
-        <div class="col span-3">
-          <LabeledSelect
-            v-if="!degraded"
-            v-model:value="row.storage"
-            label-key="driver.pve.machine.fields.diskStorage"
-            :options="storage.options"
-            :disabled="!storage.enabled || busy"
-            :loading="storage.busy"
-            :searchable="true"
-          />
-          <LabeledInput
-            v-else
-            v-model:value="row.storage"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.diskStorage"
-            :placeholder="t('driver.pve.machine.placeholders.diskStorage')"
-          />
-        </div>
-        <div class="col span-2">
-          <LabeledSelect
-            v-model:value="row.fs"
-            label-key="driver.pve.machine.fields.diskFs"
-            :options="fsOptions"
-            :disabled="busy"
-          />
-        </div>
-        <div class="col span-3">
-          <LabeledInput
-            v-model:value="row.mount"
-            :mode="mode"
-            :disabled="busy || row.fs === 'none'"
-            label-key="driver.pve.machine.fields.diskMount"
-            :placeholder="t('driver.pve.machine.placeholders.diskMount')"
-          />
-        </div>
-        <div class="col span-1 disk-row__backup">
-          <Checkbox
-            v-model:value="row.backup"
-            :mode="mode"
-            :disabled="busy"
-            :label="t('driver.pve.machine.fields.diskBackup')"
-          />
-        </div>
-        <div class="col span-1 disk-row__remove">
-          <button
-            type="button"
-            class="btn role-link"
-            :disabled="busy"
-            @click="removeDiskRow(idx)"
-          >
-            {{ t('driver.pve.machine.actions.removeDisk') }}
-          </button>
-        </div>
-        <div
+        <Banner
           v-if="diskRowError(row)"
-          class="col span-12"
-        >
-          <Banner
-            color="error"
-            :label="diskRowError(row)"
-          />
-        </div>
+          color="error"
+          class="disk-row__error"
+          :label="diskRowError(row)"
+        />
       </div>
 
       <button
@@ -510,55 +567,116 @@ export default {
       </button>
     </div>
 
-    <div class="row mt-10">
-      <div class="col span-6">
-        <LabeledSelect
-          v-if="!degraded"
-          v-model:value="bridges.selected"
-          label-key="driver.pve.machine.fields.netBridge"
-          :options="bridges.options"
-          :disabled="!bridges.enabled || busy"
-          :loading="bridges.busy"
-          :searchable="true"
-        />
-        <LabeledInput
-          v-else
-          v-model:value="value.netBridge"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.netBridge"
-          :placeholder="t('driver.pve.machine.placeholders.netBridge')"
-        />
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.fields.networking') }}
       </div>
-      <div class="col span-6">
-        <LabeledInput
-          v-model:value="value.vmName"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.vmName"
-          :placeholder="uuid"
-        />
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.networking') }}
+      </p>
+
+      <div class="row">
+        <div class="col span-4">
+          <LabeledSelect
+            v-if="!degraded"
+            v-model:value="bridges.selected"
+            label-key="driver.pve.machine.fields.netBridge"
+            :options="bridges.options"
+            :disabled="!bridges.enabled || busy"
+            :loading="bridges.busy"
+            :searchable="true"
+          />
+          <LabeledInput
+            v-else
+            v-model:value="value.netBridge"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.netBridge"
+            :placeholder="t('driver.pve.machine.placeholders.netBridge')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.netModel"
+            :mode="mode"
+            :disabled="busy || !netOptionsEnabled"
+            label-key="driver.pve.machine.fields.netModel"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.netVlanTag"
+            type="number"
+            :mode="mode"
+            :disabled="busy || !netOptionsEnabled"
+            label-key="driver.pve.machine.fields.netVlanTag"
+          />
+        </div>
+      </div>
+
+      <div class="row mt-10">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.netMtu"
+            type="number"
+            :mode="mode"
+            :disabled="busy || !netOptionsEnabled"
+            label-key="driver.pve.machine.fields.netMtu"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledSelect
+            v-model:value="value.netFirewall"
+            label-key="driver.pve.machine.fields.netFirewall"
+            :options="firewallOptions"
+            :disabled="busy || !netOptionsEnabled"
+          />
+        </div>
       </div>
     </div>
 
-    <div class="row mt-10">
-      <div class="col span-6">
-        <LabeledInput
-          v-model:value="value.netModel"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.netModel"
-        />
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.fields.cloudInit') }}
       </div>
-      <div class="col span-6">
-        <LabeledInput
-          v-model:value="value.netVlanTag"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.netVlanTag"
-        />
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.cloudInit') }}
+      </p>
+
+      <div class="row">
+        <div class="col span-4 cloudinit-toggle">
+          <Checkbox
+            v-model:value="value.cloudinit"
+            :mode="mode"
+            :disabled="busy"
+            :label="t('driver.pve.machine.fields.cloudInitEnabled')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.ipconfig"
+            :mode="mode"
+            :disabled="busy || !value.cloudinit"
+            label-key="driver.pve.machine.fields.ipconfig"
+            :placeholder="t('driver.pve.machine.placeholders.ipconfig')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.ciuser"
+            :mode="mode"
+            :disabled="busy || !value.cloudinit"
+            label-key="driver.pve.machine.fields.ciuser"
+            :placeholder="t('driver.pve.machine.placeholders.ciuser')"
+          />
+        </div>
       </div>
+
+      <Banner
+        v-if="needsCloudInit && !value.cloudinit"
+        color="error"
+        :label="t('driver.pve.machine.errors.cloudInitRequired')"
+      />
     </div>
   </div>
 </template>
@@ -592,5 +710,17 @@ export default {
       align-items: center;
       min-height: 40px;
     }
+
+    // The banner is a sibling of the field row, not a column inside it: as a
+    // column the flex row squeezed it against the right-hand edge.
+    &__error {
+      margin: 4px 0 0 0;
+    }
+  }
+
+  .cloudinit-toggle {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
   }
 </style>

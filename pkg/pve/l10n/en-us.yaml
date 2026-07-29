@@ -57,6 +57,7 @@ driver:
         # through Rancher's proxy. Rendered as a warning, not an error: the
         # driver talks to PVE directly, so a pool configured by hand provisions
         # normally. See `auth.warnings.proxyUnverified`.
+        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the disk's filesystem to \"none\" to attach it raw."
         unreachable: "Could not list resources from the Proxmox VE API — Rancher's UI proxy cannot reach it, usually because the Rancher server does not trust the Proxmox VE certificate. Enter the node, template VMID, storage and bridge by hand; provisioning does not use this proxy and is unaffected."
       placeholders:
         node: "pve1 — as shown under Datacenter in the PVE UI"
@@ -64,6 +65,8 @@ driver:
         diskMount: "/var/lib/longhorn"
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
+        ipconfig: "ip=dhcp"
+        ciuser: "debian — leave empty to use the image default"
       actions:
         addDisk: Add Data Disk
         removeDisk: Remove
@@ -71,6 +74,18 @@ driver:
         # Explains the division of labour the driver implements, so nobody goes
         # looking for a cloud-init drop-in to do it.
         dataDisks: Each disk is attached to the VM and, unless the filesystem is "none", formatted and mounted at the given path by the driver before the node joins the cluster.
+        # The model/VLAN/MTU/firewall fields are only applied while rewriting the
+        # NIC, which only happens when a bridge is named — say so rather than
+        # letting people fill in a VLAN that is silently dropped.
+        networking: Leave the bridge empty to inherit the template's network untouched. The remaining fields are only applied when a bridge is set.
+        cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects.
+        # VM Name is a literal override, not a prefix: every node in the pool
+        # would end up with the same name in Proxmox.
+        vmName: Overrides the Proxmox VM name. Leave empty so each node keeps the unique name Rancher generates — a fixed value gives every node in this pool the same name in Proxmox.
+      firewall:
+        default: Use the PVE default
+        enabled: Enabled
+        disabled: Disabled
       fields:
         node: Target PVE Node
         template: Source Template (VMID)
@@ -84,7 +99,14 @@ driver:
         diskFs: Filesystem
         diskMount: Mount Path
         diskBackup: Include in PVE backups
+        networking: Networking
         netBridge: Network Bridge
         netModel: NIC Model
         netVlanTag: VLAN Tag
+        netMtu: MTU
+        netFirewall: PVE Firewall
+        cloudInit: Cloud-init
+        cloudInitEnabled: Configure cloud-init
+        ipconfig: IP Config
+        ciuser: Cloud-init User
         vmName: VM Name
