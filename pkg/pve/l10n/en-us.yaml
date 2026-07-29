@@ -33,10 +33,16 @@ driver:
         apiUrl: https://pve.example.com:8006/api2/json
         apiTokenId: rancher@pve!machine
         apiTokenSecret: The secret printed once by `pveum user token add`
+        apiTokenSecretEdit: Leave blank to keep the stored secret
         caCert: |
           -----BEGIN CERTIFICATE-----
           ...
           -----END CERTIFICATE-----
+      hints:
+        # Rancher stores the token secret write-only and never returns it, so
+        # the field is blank on edit. Say so, or it reads as data loss.
+        apiInsecure: "Applies to the driver's own connection to Proxmox VE. It does not affect Rancher's UI proxy, which always verifies the certificate — so the machine-pool dropdowns can still fail while provisioning works. When ticked, the CA certificate above is ignored."
+        secretWriteOnly: "The API token secret is stored write-only and is never shown again, so this field is blank. Leave it blank to keep the existing secret; type a new one only to replace it. Test Connection needs a secret, so it stays disabled until you enter one — that does not prevent saving."
       connected: "Connected to Proxmox VE { version }"
       errors:
         notAllowed: "Rancher could not reach the Proxmox VE server — the host `{ hostname }` is not in the node driver allow list"

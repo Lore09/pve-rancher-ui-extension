@@ -1,6 +1,7 @@
 <script>
 import Banner from '@components/Banner/Banner.vue';
 import { LabeledInput } from '@components/Form/LabeledInput';
+import { Checkbox } from '@components/Form/Checkbox';
 import LabeledSelect from '@shell/components/form/LabeledSelect';
 import { parse as parseUrl } from '@shell/utils/url';
 import { _CREATE } from '@shell/config/query-params';
@@ -11,6 +12,7 @@ export default {
   components: {
     Banner,
     BusyButton,
+    Checkbox,
     LabeledInput,
     LabeledSelect,
   },
@@ -50,6 +52,30 @@ export default {
   },
 
   computed: {
+    isCreate() {
+      return this.mode === _CREATE;
+    },
+
+    /**
+     * The credential stores its values as strings in a Secret, so this is
+     * `'true'` or `''` on the wire while the checkbox needs a real boolean.
+     *
+     * `''` rather than `'false'` for the off state is deliberate: Rancher
+     * decides whether to pass a bool flag by testing the stored string, and a
+     * literal "false" is non-empty — it would switch verification off exactly
+     * when the user asked for it to stay on.
+     */
+    apiInsecure: {
+      get() {
+        const v = this.value?.decodedData?.apiInsecure;
+
+        return v === true || v === 'true';
+      },
+      set(v) {
+        this.value.setData('apiInsecure', v ? 'true' : '');
+      },
+    },
+
     canAuthenticate() {
       return !!this.value?.decodedData?.apiUrl &&
         !!this.value?.decodedData?.apiTokenId &&
@@ -64,7 +90,13 @@ export default {
   },
 
   created() {
-    this.$emit('validationChanged', false);
+    // On create nothing is valid until Test Connection succeeds. On edit the
+    // credential already exists and Rancher never returns `apiTokenSecret` —
+    // it is write-only — so `canAuthenticate` can never be satisfied, Test
+    // Connection stays disabled, and requiring a fresh test would leave Save
+    // permanently greyed out. Editing the TLS options must not be gated on
+    // retyping a secret the form cannot show.
+    this.$emit('validationChanged', !this.isCreate);
   },
 
   methods: {
@@ -74,7 +106,7 @@ export default {
       this.error = '';
       this.warning = '';
       this.versionInfo = null;
-      this.$emit('validationChanged', false);
+      this.$emit('validationChanged', !this.isCreate);
     },
 
     async addHostToAllowList() {
@@ -152,7 +184,10 @@ export default {
       }
 
       this.busy = false;
-      this.$emit('validationChanged', okay);
+      // A failed test still leaves an existing credential saveable: the probe
+      // goes through Rancher's proxy, which the driver does not use, so it is
+      // advisory. The driver validates for real in PreCreateCheck.
+      this.$emit('validationChanged', okay || !this.isCreate);
       cb(okay);
     },
   },
@@ -193,13 +228,21 @@ export default {
           :disabled="step !== 1"
           class="mt-20"
           label-key="driver.pve.auth.fields.apiTokenSecret"
-          placeholder-key="driver.pve.auth.placeholders.apiTokenSecret"
+          :placeholder="isCreate
+            ? t('driver.pve.auth.placeholders.apiTokenSecret')
+            : t('driver.pve.auth.placeholders.apiTokenSecretEdit')"
           type="password"
           :mode="mode"
           @update:value="value.setData('apiTokenSecret', $event);"
         />
       </div>
     </div>
+
+    <Banner
+      v-if="!isCreate"
+      color="info"
+      :label="t('driver.pve.auth.hints.secretWriteOnly')"
+    />
 
     <div class="row mt-10">
       <div class="col span-12">
@@ -216,13 +259,14 @@ export default {
     </div>
     <div class="row mt-10">
       <div class="col span-12">
-        <LabeledInput
-          :value="value.decodedData.apiInsecure"
-          label-key="driver.pve.auth.fields.apiInsecure"
-          type="checkbox"
+        <Checkbox
+          v-model:value="apiInsecure"
           :mode="mode"
-          @update:value="value.setData('apiInsecure', $event === true || $event === 'true' ? 'true' : '');"
+          :label="t('driver.pve.auth.fields.apiInsecure')"
         />
+        <p class="text-muted mt-5">
+          {{ t('driver.pve.auth.hints.apiInsecure') }}
+        </p>
       </div>
     </div>
 
