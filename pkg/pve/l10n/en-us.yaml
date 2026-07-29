@@ -52,12 +52,18 @@ driver:
     machine:
       title: Proxmox VE Configuration
       loading: Loading resources from the Proxmox VE server...
+      warnings:
+        # Both surface the same failure mode: the node provisions fine and then
+        # never reaches Ready, because nothing can log into it. Warnings rather
+        # than errors — a template that permits root logins is legitimate.
+        sshUserMismatch: "SSH User is \"{ sshUser }\" but the Cloud-init User is \"{ ciuser }\". Cloud-init creates the user named above and Rancher logs in as the SSH User, so if they differ the node provisions but never reaches Ready."
+        sshUserRoot: "SSH User is \"root\", which the documented templates do not permit: Debian's cloud image uses \"debian\" and Leap Micro uses \"rancher\". Unless your template explicitly allows root logins, the node will provision and then fail to bootstrap."
       errors:
+        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the disk's filesystem to \"none\" to attach it raw."
         # Shown in place of the dropdowns when the PVE API cannot be reached
         # through Rancher's proxy. Rendered as a warning, not an error: the
         # driver talks to PVE directly, so a pool configured by hand provisions
         # normally. See `auth.warnings.proxyUnverified`.
-        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the disk's filesystem to \"none\" to attach it raw."
         unreachable: "Could not list resources from the Proxmox VE API — Rancher's UI proxy cannot reach it, usually because the Rancher server does not trust the Proxmox VE certificate. Enter the node, template VMID, storage and bridge by hand; provisioning does not use this proxy and is unaffected."
       placeholders:
         node: "pve1 — as shown under Datacenter in the PVE UI"
@@ -66,6 +72,8 @@ driver:
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
         ipconfig: "ip=dhcp"
+        vmNamePrefix: "k8s — optional"
+        sshUser: "debian or rancher — must match the cloud-init user"
         ciuser: "debian — leave empty to use the image default"
       actions:
         addDisk: Add Data Disk
@@ -79,9 +87,8 @@ driver:
         # letting people fill in a VLAN that is silently dropped.
         networking: Leave the bridge empty to inherit the template's network untouched. The remaining fields are only applied when a bridge is set.
         cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects.
-        # VM Name is a literal override, not a prefix: every node in the pool
-        # would end up with the same name in Proxmox.
-        vmName: Overrides the Proxmox VM name. Leave empty so each node keeps the unique name Rancher generates — a fixed value gives every node in this pool the same name in Proxmox.
+        vmNamePrefix: Prepended to the name Rancher generates, as <prefix>-<machine name>. Useful for grouping this cluster's VMs in the Proxmox list. Letters, digits and inner hyphens only.
+        sshUser: The account Rancher and the driver log in as. It must be the user that actually exists in the guest — the image's default user, or the cloud-init user above.
       firewall:
         default: Use the PVE default
         enabled: Enabled
@@ -109,4 +116,6 @@ driver:
         cloudInitEnabled: Configure cloud-init
         ipconfig: IP Config
         ciuser: Cloud-init User
-        vmName: VM Name
+        vmNamePrefix: VM Name Prefix
+        sshUser: SSH User
+        sshPort: SSH Port

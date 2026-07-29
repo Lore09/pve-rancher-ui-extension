@@ -221,6 +221,29 @@ export default {
     needsCloudInit() {
       return this.diskRows.some((row) => row.fs !== 'none');
     },
+
+    /**
+     * Two ways the SSH login silently ends up wrong, both of which surface only
+     * as a node that provisions and then never reaches Ready:
+     *  - ssh-user left at its `root` default, which neither documented template
+     *    permits (Debian uses `debian`, Leap Micro `rancher`);
+     *  - ssh-user not matching the cloud-init user that was actually created.
+     * Warnings rather than errors: an image with a root login is legitimate.
+     */
+    sshUserWarning() {
+      const sshUser = (this.value?.sshUser || '').trim();
+      const ciuser = (this.value?.ciuser || '').trim();
+
+      if (ciuser && sshUser && ciuser !== sshUser) {
+        return this.t('driver.pve.machine.warnings.sshUserMismatch', { ciuser, sshUser });
+      }
+
+      if (sshUser === 'root') {
+        return this.t('driver.pve.machine.warnings.sshUserRoot');
+      }
+
+      return '';
+    },
   },
 
   methods: {
@@ -419,12 +442,12 @@ export default {
       </div>
       <div class="col span-4">
         <LabeledInput
-          v-model:value="value.vmName"
+          v-model:value="value.vmNamePrefix"
           :mode="mode"
           :disabled="busy"
-          label-key="driver.pve.machine.fields.vmName"
-          :placeholder="uuid"
-          :tooltip="t('driver.pve.machine.hints.vmName')"
+          label-key="driver.pve.machine.fields.vmNamePrefix"
+          :placeholder="t('driver.pve.machine.placeholders.vmNamePrefix')"
+          :tooltip="t('driver.pve.machine.hints.vmNamePrefix')"
         />
       </div>
     </div>
@@ -672,10 +695,37 @@ export default {
         </div>
       </div>
 
+      <div class="row mt-10">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.sshUser"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.sshUser"
+            :placeholder="t('driver.pve.machine.placeholders.sshUser')"
+            :tooltip="t('driver.pve.machine.hints.sshUser')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.sshPort"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.sshPort"
+          />
+        </div>
+      </div>
+
       <Banner
         v-if="needsCloudInit && !value.cloudinit"
         color="error"
         :label="t('driver.pve.machine.errors.cloudInitRequired')"
+      />
+      <Banner
+        v-if="sshUserWarning"
+        color="warning"
+        :label="sshUserWarning"
       />
     </div>
   </div>
