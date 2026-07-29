@@ -320,9 +320,11 @@ export default {
       ]);
 
       if (!tmpl.error) {
+        // String, not Number: every field in an rke-machine-config CRD is typed
+        // as a string, and an integer here is rejected outright on save.
         this.templates.options = tmpl.map((o) => ({
           label: `${ o.value.vmid } (${ o.value.name || 'unnamed' })`,
-          value: Number(o.value.vmid),
+          value: String(o.value.vmid),
         }));
         this.templates.selected = this.value?.templateVmid || this.templates.options[0]?.value;
         this.templates.enabled = true;
@@ -339,7 +341,13 @@ export default {
       }
 
       if (!brg.error) {
-        this.bridges.options = brg;
+        // Same as storage above: toOptions() sets `value` to the whole PVE
+        // object, and binding that produces `netBridge: {...}`, which the CRD
+        // rejects with "must be of type string: object".
+        this.bridges.options = brg.map((o) => ({
+          label: o.value.iface,
+          value: o.value.iface,
+        }));
         this.bridges.selected = this.value?.netBridge || this.bridges.options[0]?.value;
         this.bridges.enabled = true;
       }
@@ -372,14 +380,50 @@ export default {
 
       // In degraded mode the inputs are bound to `value` directly and the
       // selects hold nothing, so copying them across would wipe what was typed.
-      if (this.degraded) {
-        return;
+      if (!this.degraded) {
+        // Syncs the form values into the bound machine-config object.
+        this.value.node         = this.nodes.selected || '';
+        this.value.templateVmid = this.templates.selected ?? this.value?.templateVmid ?? '';
+        this.value.netBridge    = this.bridges.selected || '';
       }
 
-      // Syncs the form values into the bound machine-config object.
-      this.value.node         = this.nodes.selected || '';
-      this.value.templateVmid = this.templates.selected ?? this.value?.templateVmid ?? 0;
-      this.value.netBridge    = this.bridges.selected || '';
+      this.stringifyScalars();
+    },
+
+    /**
+     * Rancher's rke-machine-config CRDs declare **every** field as a string,
+     * numbers and booleans included. A number input or a checkbox binds a real
+     * number or boolean, and the API then rejects the entire object with
+     * `must be of type string: "integer"`. Coercing once here, on the way out,
+     * is more reliable than remembering to do it at each binding.
+     *
+     * `dataDisk` is absent from the list on purpose: it is an array of
+     * strings, which is exactly what the CRD expects.
+     */
+    stringifyScalars() {
+      // Explicit list rather than every key of `value`: the bound object is a
+      // Steve resource that also carries metadata, links and actions, and
+      // rewriting those would be at best pointless and at worst destructive.
+      const fields = [
+        'node', 'vmid', 'templateVmid', 'vmNamePrefix',
+        'cores', 'sockets', 'memory',
+        'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout',
+        'netIface', 'netDevice', 'netBridge', 'netModel',
+        'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout',
+        'cloudinit', 'ipconfig', 'ciuser', 'sshkeys', 'onboot',
+        'skipPermissionCheck', 'keepOnFailure',
+        'sshUser', 'sshPort',
+      ];
+
+      fields.forEach((key) => {
+        const v = this.value?.[key];
+
+        if (v === undefined) {
+          return;
+        }
+
+        this.value[key] = v === null ? '' : String(v);
+      });
     },
   },
 };
