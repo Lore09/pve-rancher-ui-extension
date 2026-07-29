@@ -41,7 +41,7 @@ driver:
       hints:
         # Rancher stores the token secret write-only and never returns it, so
         # the field is blank on edit. Say so, or it reads as data loss.
-        apiInsecure: "Applies to the driver's own connection to Proxmox VE. It does not affect Rancher's UI proxy, which always verifies the certificate — so the machine-pool dropdowns can still fail while provisioning works. When ticked, the CA certificate above is ignored."
+        apiInsecure: "Applies to the connection the driver makes to Proxmox VE. It does not affect the Rancher UI proxy, which always verifies the certificate, so the machine-pool dropdowns can still fail while provisioning works. When ticked, the CA certificate above is ignored."
         secretWriteOnly: "The API token secret is stored write-only and is never shown again, so this field is blank. Leave it blank to keep the existing secret; type a new one only to replace it. Test Connection needs a secret, so it stays disabled until you enter one — that does not prevent saving."
       connected: "Connected to Proxmox VE { version }"
       errors:
@@ -54,7 +54,7 @@ driver:
         # certificate against the Rancher server's trust store and has no way to
         # skip it, so the fields above (which the driver honours) do not help
         # here. Provisioning still works, hence a warning and not an error.
-        proxyUnverified: "Credentials accepted, but Rancher's UI proxy could not reach or verify `{ hostname }` — usually because the Rancher server does not trust the Proxmox VE certificate. Provisioning is unaffected: the driver connects to Proxmox VE directly and honours the TLS options above. The machine pool dropdowns will be empty, so enter the node, template, storage and bridge by hand. To populate them, add the Proxmox VE CA to the Rancher server's trusted CAs."
+        proxyUnverified: "Credentials accepted, but the Rancher UI proxy could not reach or verify `{ hostname }` — usually because the Rancher server does not trust the Proxmox VE certificate. Provisioning is unaffected: the driver connects to Proxmox VE directly and honours the TLS options above. The machine pool dropdowns will be empty, so enter the node, template, storage and bridge by hand. To populate them, add the Proxmox VE CA to the trusted CAs of the Rancher server."
     machine:
       title: Proxmox VE Configuration
       loading: Loading resources from the Proxmox VE server...
@@ -62,14 +62,14 @@ driver:
         # Surfaces as a node that provisions fine and then never reaches Ready,
         # because nothing can log into it. A warning rather than an error — a
         # template that permits root logins is legitimate.
-        sshUserRoot: "SSH User is \"root\", which the documented templates do not permit: Debian's cloud image uses \"debian\" and Leap Micro uses \"rancher\". Unless your template explicitly allows root logins, the node will provision and then fail to bootstrap."
+        sshUserRoot: "SSH User is set to root, which neither documented template permits: the Debian cloud image uses debian and Leap Micro uses rancher. Unless your template explicitly allows root logins, the node will provision and then fail to bootstrap."
       errors:
-        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the disk's filesystem to \"Raw\"."
+        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the filesystem of that disk to Raw."
         # Shown in place of the dropdowns when the PVE API cannot be reached
         # through Rancher's proxy. Rendered as a warning, not an error: the
         # driver talks to PVE directly, so a pool configured by hand provisions
         # normally. See `auth.warnings.proxyUnverified`.
-        unreachable: "Could not list resources from the Proxmox VE API — Rancher's UI proxy cannot reach it, usually because the Rancher server does not trust the Proxmox VE certificate. Enter the node, template VMID, storage and bridge by hand; provisioning does not use this proxy and is unaffected."
+        unreachable: "Could not list resources from the Proxmox VE API. The Rancher UI proxy cannot reach it, usually because the Rancher server does not trust the Proxmox VE certificate. Enter the node, template VMID, storage and bridge by hand; provisioning does not use this proxy and is unaffected."
       placeholders:
         node: "pve1 — as shown under Datacenter in the PVE UI"
         template: "9000"
@@ -85,15 +85,15 @@ driver:
       hints:
         # Explains the division of labour the driver implements, so nobody goes
         # looking for a cloud-init drop-in to do it.
-        dataDisks: Each disk is attached to the VM and, unless the filesystem is Raw, formatted and mounted at the given path by the driver before the node joins the cluster. Choose Raw only for storage backends that require an unformatted device, such as Ceph/Rook OSDs or Longhorn's v2 data engine.
+        dataDisks: Each disk is attached to the VM and, unless the filesystem is Raw, formatted and mounted at the given path by the driver before the node joins the cluster. Choose Raw only for storage backends that require an unformatted device, such as Ceph or Rook OSDs, or the Longhorn v2 data engine.
         # The model/VLAN/MTU/firewall fields are only applied while rewriting the
         # NIC, which only happens when a bridge is named — say so rather than
         # letting people fill in a VLAN that is silently dropped.
-        networking: Leave the bridge empty to inherit the template's network untouched. The remaining fields are only applied when a bridge is set.
+        networking: Leave the bridge empty to inherit the network of the template untouched. The remaining fields are only applied when a bridge is set.
         cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects. Nodes always use DHCP; the driver discovers the address through the QEMU guest agent.
-        vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep a cluster's VMs in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
-        vmNamePrefix: Prepended to the name Rancher generates, as <prefix>-<machine name>. Useful for grouping this cluster's VMs in the Proxmox list. Letters, digits and inner hyphens only.
-        vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the image's login user — debian for Debian's cloud image, rancher for Leap Micro."
+        vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep the VMs of one cluster in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
+        vmNamePrefix: Prepended to the name Rancher generates, so a VM is named prefix-machinename. Useful for grouping the VMs of one cluster in the Proxmox list. Letters, digits and inner hyphens only.
+        vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the login user of the image: debian for the Debian cloud image, rancher for Leap Micro."
       fs:
         ext4: ext4
         xfs: xfs
