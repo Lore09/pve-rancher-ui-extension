@@ -24,6 +24,32 @@ export const FS_OPTIONS: DiskFs[] = ['ext4', 'xfs', 'none'];
 /** Must stay identical to safeShellValue in pkg/driver/diskspec.go. */
 const SAFE_VALUE = /^[A-Za-z0-9._/-]+$/;
 
+/**
+ * Mirrors forbiddenMounts in pkg/driver/diskspec.go. Mounting a freshly
+ * formatted disk over any of these shadows the running system.
+ */
+const FORBIDDEN_MOUNTS = [
+  '/', '/bin', '/boot', '/dev', '/etc', '/home', '/lib', '/lib64',
+  '/proc', '/root', '/run', '/sbin', '/sys', '/usr', '/var',
+];
+
+/** Mirrors forbiddenMountTrees in pkg/driver/diskspec.go. */
+const FORBIDDEN_MOUNT_TREES = [
+  '/bin/', '/boot/', '/dev/', '/etc/', '/lib/', '/lib64/',
+  '/proc/', '/sbin/', '/sys/', '/usr/',
+];
+
+/** Mirrors normalizeMount in pkg/driver/diskspec.go. */
+export function normalizeMount(path: string): string {
+  let out = (path || '').trim();
+
+  while (out.includes('//')) {
+    out = out.replace(/\/\//g, '/');
+  }
+
+  return out === '/' ? out : out.replace(/\/+$/, '');
+}
+
 const FORM_KEYS = ['size', 'storage', 'fs', 'mount', 'backup'];
 
 export function emptyRow(): DiskRow {
@@ -114,6 +140,54 @@ export function rowError(row: DiskRow): string {
 
   if (!SAFE_VALUE.test(row.mount)) {
     return 'Mount path may only contain the characters A-Z a-z 0-9 . _ / -';
+  }
+
+  const mount = normalizeMount(row.mount);
+
+  if (mount.split('/').includes('..')) {
+    return "Mount path must not contain '..' segments";
+  }
+
+  if (FORBIDDEN_MOUNTS.includes(mount)) {
+    return `${ mount } is a system directory — mounting a data disk there would shadow the running system. Use a subdirectory, e.g. ${ mount === '/' ? '/data' : `${ mount }/data` }`;
+  }
+
+  const tree = FORBIDDEN_MOUNT_TREES.find((t) => mount.startsWith(t));
+
+  if (tree) {
+    return `${ mount } is inside the system directory ${ tree.replace(/\/$/, '') }, which a data disk must not occupy`;
+  }
+
+  return '';
+}
+
+/**
+ * Cross-row checks the per-row validator cannot see: the same mount point twice,
+ * or one disk mounted inside another (legal in Linux, but the result depends on
+ * mount order and can silently hide the inner disk). Mirrors
+ * checkDataDiskCollisions in pkg/driver/diskspec.go.
+ */
+export function rowsError(rows: DiskRow[]): string {
+  const mounts: string[] = [];
+
+  for (const row of rows) {
+    if (row.fs === 'none' || !row.mount) {
+      continue;
+    }
+
+    const mount = normalizeMount(row.mount);
+
+    if (mounts.includes(mount)) {
+      return `Two data disks are both mounted at ${ mount }`;
+    }
+
+    const nested = mounts.find((m) => mount.startsWith(`${ m }/`) || m.startsWith(`${ mount }/`));
+
+    if (nested) {
+      return `Data disks at ${ mount } and ${ nested } are nested; mounting one inside another depends on mount order and can hide the inner one`;
+    }
+
+    mounts.push(mount);
   }
 
   return '';

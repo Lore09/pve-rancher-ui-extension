@@ -1,5 +1,5 @@
 import {
-  DiskRow, emptyRow, parseRow, rowError, serializeRow,
+  DiskRow, emptyRow, normalizeMount, parseRow, rowError, rowsError, serializeRow,
 } from '../disk-spec';
 
 describe('serializeRow', () => {
@@ -101,5 +101,77 @@ describe('emptyRow', () => {
     expect(emptyRow()).toEqual({
       size: null, storage: '', fs: 'ext4', mount: '', backup: false, extra: [],
     });
+  });
+});
+
+describe('mount path safety', () => {
+  const withMount = (mount: string): DiskRow => ({
+    size: 10, storage: 's', fs: 'ext4', mount, backup: false, extra: [],
+  });
+
+  it.each([
+    '/', '/bin', '/boot', '/dev', '/etc', '/home', '/lib', '/lib64',
+    '/proc', '/root', '/run', '/sbin', '/sys', '/usr', '/var',
+  ])('rejects the system directory %s', (mount) => {
+    expect(rowError(withMount(mount))).not.toBe('');
+  });
+
+  it.each(['/etc/kubernetes', '/usr/local', '/dev/sdb', '/boot/efi'])(
+    'rejects %s inside a system tree', (mount) => {
+      expect(rowError(withMount(mount))).not.toBe('');
+    });
+
+  it.each(['/var/', '//', '/etc//'])('rejects %s after normalization', (mount) => {
+    expect(rowError(withMount(mount))).not.toBe('');
+  });
+
+  it.each(['/data/../etc', '/var/lib/../../usr'])('rejects traversal in %s', (mount) => {
+    expect(rowError(withMount(mount))).toMatch(/\.\./);
+  });
+
+  it.each([
+    '/var/lib/longhorn', '/var/lib/rancher', '/data', '/mnt/data', '/opt/data', '/srv/storage',
+  ])('accepts %s', (mount) => {
+    expect(rowError(withMount(mount))).toBe('');
+  });
+});
+
+describe('normalizeMount', () => {
+  it('strips trailing separators', () => {
+    expect(normalizeMount('/data/')).toBe('/data');
+  });
+
+  it('collapses repeated separators', () => {
+    expect(normalizeMount('/data//sub//')).toBe('/data/sub');
+  });
+
+  it('leaves root alone', () => {
+    expect(normalizeMount('/')).toBe('/');
+  });
+});
+
+describe('rowsError', () => {
+  const row = (mount: string, fs: DiskRow['fs'] = 'ext4'): DiskRow => ({
+    size: 10, storage: 's', fs, mount, backup: false, extra: [],
+  });
+
+  it('accepts distinct mounts', () => {
+    expect(rowsError([row('/data1'), row('/data2')])).toBe('');
+  });
+
+  it('rejects the same mount twice', () => {
+    expect(rowsError([row('/data'), row('/data')])).toMatch(/both mounted/);
+  });
+
+  it('rejects the same mount written differently', () => {
+    expect(rowsError([row('/data'), row('/data/')])).toMatch(/both mounted/);
+  });
+
+  it('rejects a disk nested inside another', () => {
+    expect(rowsError([row('/data'), row('/data/sub')])).toMatch(/nested/);
+  });
+
+  it('ignores raw disks, which have no mount', () => {
+    expect(rowsError([row('', 'none'), row('', 'none')])).toBe('');
   });
 });
