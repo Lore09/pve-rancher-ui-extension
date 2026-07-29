@@ -13,8 +13,29 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
+    appVersion: 0.3.1
+    created: "2026-07-29T13:27:20.481533518Z"
+    description: Proxmox VE node driver UI
+    digest: d8dc3c13c70a06ba2d24fcea9fac61258599a46e0d084e05ac48fc92431b039c
+    name: pve
+    type: application
+    urls:
+    - assets/pve/pve-0.3.1.tgz
+    version: 0.3.1
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Proxmox VE Node Driver UI
+      catalog.cattle.io/kube-version: '>= 1.16.0-0'
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0-0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
+    apiVersion: v2
     appVersion: 0.3.0
-    created: "2026-07-29T12:45:32.569533754Z"
+    created: "2026-07-29T13:27:20.481337844Z"
     description: Proxmox VE node driver UI
     digest: f9e759799b5bbf0192b4a92e7a4c6be397102bf391d6cc17a5141a085418356d
     name: pve
@@ -35,7 +56,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.2.4
-    created: "2026-07-29T12:45:32.569328569Z"
+    created: "2026-07-29T13:27:20.48110346Z"
     description: Proxmox VE node driver UI
     digest: 37cccee1a0b8d57497b9c185288f3de1e930a6db8beda4a1f5802b941ca3818d
     name: pve
@@ -56,7 +77,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.2.3
-    created: "2026-07-29T12:45:32.569081752Z"
+    created: "2026-07-29T13:27:20.480898061Z"
     description: Proxmox VE node driver UI
     digest: 841f72ab883ee0a6a3bad0778cfefa436ba81c16b4c34498452521ebe1eff633
     name: pve
@@ -77,7 +98,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.2.2
-    created: "2026-07-29T12:45:32.568880253Z"
+    created: "2026-07-29T13:27:20.480703257Z"
     description: Proxmox VE node driver UI
     digest: e7e3726797d9bb09cbc4468d0a552f1db03a05ef7c325d8c57c7c27d48440e14
     name: pve
@@ -98,7 +119,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.2.1
-    created: "2026-07-29T12:45:32.568671473Z"
+    created: "2026-07-29T13:27:20.480499641Z"
     description: Proxmox VE node driver UI
     digest: 67bfaabda20529a8237a127bf9715f69fb2eed575dea6b6ebf49283a26afca74
     name: pve
@@ -119,7 +140,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.2.0
-    created: "2026-07-29T12:45:32.568457605Z"
+    created: "2026-07-29T13:27:20.480284697Z"
     description: Proxmox VE node driver UI
     digest: cce52342d8a86027cc65958fe67832eeb985bdc408575012f036ee1f6a204cec
     name: pve
@@ -140,7 +161,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.1.3
-    created: "2026-07-29T12:45:32.568220964Z"
+    created: "2026-07-29T13:27:20.480044846Z"
     description: Proxmox VE node driver UI
     digest: 27218904280bd6a663f4ca458d2815a0077d1e9855146901f3f7ea14a95b3f86
     name: pve
@@ -148,4 +169,4 @@ entries:
     urls:
     - assets/pve/pve-0.1.3.tgz
     version: 0.1.3
-generated: "2026-07-29T12:45:32.567107315Z"
+generated: "2026-07-29T13:27:20.479552083Z"
