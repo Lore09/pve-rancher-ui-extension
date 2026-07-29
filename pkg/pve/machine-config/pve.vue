@@ -10,7 +10,7 @@ import { stringify } from '@shell/utils/error';
 import { _VIEW } from '@shell/config/query-params';
 import { PveApi } from '../pve.ts';
 import {
-  FS_OPTIONS, emptyRow, parseRow, rowError, serializeRow,
+  FS_OPTIONS, emptyRow, parseRow, rowError, rowsError, serializeRow,
 } from '../disk-spec.ts';
 
 function initOptions() {
@@ -155,7 +155,6 @@ export default {
       bridges:         initOptions(),
       errors:          null,
       diskRows:        [],
-      fsOptions:       FS_OPTIONS,
     };
   },
 
@@ -223,26 +222,33 @@ export default {
     },
 
     /**
-     * Two ways the SSH login silently ends up wrong, both of which surface only
-     * as a node that provisions and then never reaches Ready:
-     *  - ssh-user left at its `root` default, which neither documented template
-     *    permits (Debian uses `debian`, Leap Micro `rancher`);
-     *  - ssh-user not matching the cloud-init user that was actually created.
-     * Warnings rather than errors: an image with a root login is legitimate.
+     * The VM User drives both the cloud-init account and the SSH login, so they
+     * can no longer disagree. What remains is the `root` default, which neither
+     * documented template permits (Debian uses `debian`, Leap Micro `rancher`)
+     * and which surfaces only as a node that provisions and never reaches Ready.
+     * A warning, not an error: an image with a root login is legitimate.
      */
     sshUserWarning() {
-      const sshUser = (this.value?.sshUser || '').trim();
-      const ciuser = (this.value?.ciuser || '').trim();
+      return (this.value?.sshUser || '').trim() === 'root'
+        ? this.t('driver.pve.machine.warnings.sshUserRoot')
+        : '';
+    },
 
-      if (ciuser && sshUser && ciuser !== sshUser) {
-        return this.t('driver.pve.machine.warnings.sshUserMismatch', { ciuser, sshUser });
-      }
+    /** Cross-row problems the per-row validator cannot see. */
+    diskRowsCrossError() {
+      return rowsError(this.diskRows);
+    },
 
-      if (sshUser === 'root') {
-        return this.t('driver.pve.machine.warnings.sshUserRoot');
-      }
-
-      return '';
+    /**
+     * "none" is the driver's flag value; the label says what it actually does,
+     * since "none" reads like "do not attach a disk" rather than "attach it
+     * unformatted".
+     */
+    fsOptions() {
+      return FS_OPTIONS.map((fs) => ({
+        label: this.t(`driver.pve.machine.fs.${ fs }`),
+        value: fs,
+      }));
     },
   },
 
@@ -281,6 +287,10 @@ export default {
      */
     diskRowsValid() {
       if (this.needsCloudInit && !this.value?.cloudinit) {
+        return false;
+      }
+
+      if (rowsError(this.diskRows) !== '') {
         return false;
       }
 
@@ -341,6 +351,16 @@ export default {
       // Rows are serialized even in degraded mode: they are typed by hand there
       // too, and unlike the selects they hold real values.
       this.value.dataDisk = this.diskRows.map((row) => serializeRow(row));
+
+      // Addressing is DHCP-only for now: the driver discovers the address through
+      // the guest agent either way, and a hand-typed static ipconfig0 was a
+      // silent way to strand a node on an address nothing routes to.
+      this.value.ipconfig = 'ip=dhcp';
+
+      // One field drives both: cloud-init installs the SSH keys for `ciuser`,
+      // and that is the account Rancher then logs in as. The driver applies the
+      // same fallback, so this only keeps the stored config self-consistent.
+      this.value.ciuser = this.value.sshUser || '';
 
       // The driver hard-fails when a VLAN tag, MTU or firewall setting is given
       // without a bridge. Clear them rather than shipping a pool it will reject.
@@ -580,6 +600,12 @@ export default {
         />
       </div>
 
+      <Banner
+        v-if="diskRowsCrossError"
+        color="error"
+        :label="diskRowsCrossError"
+      />
+
       <button
         type="button"
         class="btn role-tertiary"
@@ -677,33 +703,13 @@ export default {
         </div>
         <div class="col span-4">
           <LabeledInput
-            v-model:value="value.ipconfig"
-            :mode="mode"
-            :disabled="busy || !value.cloudinit"
-            label-key="driver.pve.machine.fields.ipconfig"
-            :placeholder="t('driver.pve.machine.placeholders.ipconfig')"
-          />
-        </div>
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value="value.ciuser"
-            :mode="mode"
-            :disabled="busy || !value.cloudinit"
-            label-key="driver.pve.machine.fields.ciuser"
-            :placeholder="t('driver.pve.machine.placeholders.ciuser')"
-          />
-        </div>
-      </div>
-
-      <div class="row mt-10">
-        <div class="col span-4">
-          <LabeledInput
             v-model:value="value.sshUser"
             :mode="mode"
             :disabled="busy"
-            label-key="driver.pve.machine.fields.sshUser"
-            :placeholder="t('driver.pve.machine.placeholders.sshUser')"
-            :tooltip="t('driver.pve.machine.hints.sshUser')"
+            label-key="driver.pve.machine.fields.vmUser"
+            :placeholder="t('driver.pve.machine.placeholders.vmUser')"
+            :tooltip="t('driver.pve.machine.hints.vmUser')"
+            required
           />
         </div>
         <div class="col span-4">

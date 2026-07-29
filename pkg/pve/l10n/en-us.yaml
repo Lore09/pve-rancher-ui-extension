@@ -53,13 +53,12 @@ driver:
       title: Proxmox VE Configuration
       loading: Loading resources from the Proxmox VE server...
       warnings:
-        # Both surface the same failure mode: the node provisions fine and then
-        # never reaches Ready, because nothing can log into it. Warnings rather
-        # than errors — a template that permits root logins is legitimate.
-        sshUserMismatch: "SSH User is \"{ sshUser }\" but the Cloud-init User is \"{ ciuser }\". Cloud-init creates the user named above and Rancher logs in as the SSH User, so if they differ the node provisions but never reaches Ready."
+        # Surfaces as a node that provisions fine and then never reaches Ready,
+        # because nothing can log into it. A warning rather than an error — a
+        # template that permits root logins is legitimate.
         sshUserRoot: "SSH User is \"root\", which the documented templates do not permit: Debian's cloud image uses \"debian\" and Leap Micro uses \"rancher\". Unless your template explicitly allows root logins, the node will provision and then fail to bootstrap."
       errors:
-        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the disk's filesystem to \"none\" to attach it raw."
+        cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the disk's filesystem to \"Raw\"."
         # Shown in place of the dropdowns when the PVE API cannot be reached
         # through Rancher's proxy. Rendered as a warning, not an error: the
         # driver talks to PVE directly, so a pool configured by hand provisions
@@ -71,24 +70,28 @@ driver:
         diskMount: "/var/lib/longhorn"
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
-        ipconfig: "ip=dhcp"
         vmNamePrefix: "k8s — optional"
-        sshUser: "debian or rancher — must match the cloud-init user"
-        ciuser: "debian — leave empty to use the image default"
+        vmUser: "debian for Debian, rancher for Leap Micro"
       actions:
         addDisk: Add Data Disk
         removeDisk: Remove
       hints:
         # Explains the division of labour the driver implements, so nobody goes
         # looking for a cloud-init drop-in to do it.
-        dataDisks: Each disk is attached to the VM and, unless the filesystem is "none", formatted and mounted at the given path by the driver before the node joins the cluster.
+        dataDisks: Each disk is attached to the VM and, unless the filesystem is Raw, formatted and mounted at the given path by the driver before the node joins the cluster. Choose Raw only for storage backends that require an unformatted device, such as Ceph/Rook OSDs or Longhorn's v2 data engine.
         # The model/VLAN/MTU/firewall fields are only applied while rewriting the
         # NIC, which only happens when a bridge is named — say so rather than
         # letting people fill in a VLAN that is silently dropped.
         networking: Leave the bridge empty to inherit the template's network untouched. The remaining fields are only applied when a bridge is set.
-        cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects.
+        cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects. Nodes always use DHCP; the driver discovers the address through the QEMU guest agent.
         vmNamePrefix: Prepended to the name Rancher generates, as <prefix>-<machine name>. Useful for grouping this cluster's VMs in the Proxmox list. Letters, digits and inner hyphens only.
-        sshUser: The account Rancher and the driver log in as. It must be the user that actually exists in the guest — the image's default user, or the cloud-init user above.
+        vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the image's login user — debian for Debian's cloud image, rancher for Leap Micro."
+      fs:
+        ext4: ext4
+        xfs: xfs
+        # "none" is what the driver's flag grammar calls it; the UI says what it
+        # actually does, because "none" reads like "do not attach a disk".
+        none: Raw (unformatted, for Ceph/Rook or Longhorn v2)
       firewall:
         default: Use the PVE default
         enabled: Enabled
@@ -114,8 +117,6 @@ driver:
         netFirewall: PVE Firewall
         cloudInit: Cloud-init
         cloudInitEnabled: Configure cloud-init
-        ipconfig: IP Config
-        ciuser: Cloud-init User
+        vmUser: VM User
         vmNamePrefix: VM Name Prefix
-        sshUser: SSH User
         sshPort: SSH Port
