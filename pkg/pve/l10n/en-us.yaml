@@ -79,6 +79,10 @@ driver:
         vmNamePrefix: "k8s — optional"
         vmidRange: "200-299 — optional"
         vmUser: "debian for Debian, rancher for Leap Micro"
+        ipBase: 10.10.20.10/24
+        gateway: 10.10.20.1
+        nameservers: 10.10.20.1 1.1.1.1
+        searchdomain: cluster.lan
       actions:
         addDisk: Add Data Disk
         removeDisk: Remove
@@ -90,7 +94,8 @@ driver:
         # NIC, which only happens when a bridge is named — say so rather than
         # letting people fill in a VLAN that is silently dropped.
         networking: Leave the bridge empty to inherit the network of the template untouched. The remaining fields are only applied when a bridge is set.
-        cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects. Nodes always use DHCP; the driver discovers the address through the QEMU guest agent.
+        addressing: Static addressing gives each machine an address derived from its VMID, so the pool needs a VMID range. The machine with the lowest VMID gets the base address and each later VMID gets the next one. DNS applies in both modes; leave it empty to keep whatever DHCP supplies.
+        cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects. Also required for static addressing, which is delivered through cloud-init, and for the DNS fields, which PVE applies as cloud-init options.
         vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep the VMs of one cluster in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
         vmNamePrefix: Prepended to the name Rancher generates, so a VM is named prefix-machinename. Useful for grouping the VMs of one cluster in the Proxmox list. Letters, digits and inner hyphens only.
         vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the login user of the image: debian for the Debian cloud image, rancher for Leap Micro."
@@ -129,3 +134,11 @@ driver:
         vmNamePrefix: VM Name Prefix
         vmidRange: VMID Range
         sshPort: SSH Port
+        ipMode: Addressing
+        ipBase: Base address
+        gateway: Gateway
+        nameservers: DNS servers
+        searchdomain: DNS search domain
+      ipModes:
+        dhcp: DHCP
+        static: Static
