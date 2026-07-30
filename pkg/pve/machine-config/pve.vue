@@ -12,6 +12,10 @@ import { PveApi } from '../pve.ts';
 import {
   FS_OPTIONS, emptyRow, parseRow, rowError, rowsError, serializeRow,
 } from '../disk-spec.ts';
+import {
+  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError,
+  requiredFieldsError, dnsCloudInitError,
+} from '../ip-config';
 
 function initOptions() {
   return {
@@ -155,6 +159,7 @@ export default {
       bridges:         initOptions(),
       errors:          null,
       diskRows:        [],
+      ipModes:         IP_MODES,
     };
   },
 
@@ -183,13 +188,40 @@ export default {
     // driver would reject the same value in PreCreateCheck, but only after the
     // pool has already been created.
     'value.cloudinit'() {
-      this.$emit('validationChanged', this.diskRowsValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
+      this.emitValidation();
+    },
+
+    // Same reasoning for the addressing fields: an unusable base, gateway or
+    // span must block the save, so validity has to be re-reported as they
+    // change rather than waiting for the first machine to fail provisioning.
+    'value.ipMode'() {
+      this.emitValidation();
+    },
+
+    'value.ipBase'() {
+      this.emitValidation();
+    },
+
+    'value.gateway'() {
+      this.emitValidation();
+    },
+
+    'value.nameservers'() {
+      this.emitValidation();
+    },
+
+    'value.searchdomain'() {
+      this.emitValidation();
+    },
+
+    'value.vmidRange'() {
+      this.emitValidation();
     },
 
     diskRows: {
       deep: true,
       handler() {
-        this.$emit('validationChanged', this.diskRowsValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
+        this.emitValidation();
       },
     },
   },
@@ -250,6 +282,48 @@ export default {
         value: fs,
       }));
     },
+
+    isStaticIP() {
+      return this.value?.ipMode === 'static';
+    },
+
+    ipBaseErr() {
+      return this.isStaticIP ? ipBaseError(this.value?.ipBase || '') : '';
+    },
+
+    gatewayErr() {
+      return this.isStaticIP ? gatewayError(this.value?.gateway || '', this.value?.ipBase || '') : '';
+    },
+
+    ipSpanErr() {
+      return this.isStaticIP ? spanError(this.value?.ipBase || '', this.value?.vmidRange || '') : '';
+    },
+
+    nameserversErr() {
+      return nameserversError(this.value?.nameservers || '');
+    },
+
+    /** Presence and consistency rules the per-field format checks cannot see. */
+    requiredFieldsErr() {
+      return requiredFieldsError(
+        this.value?.ipMode || '',
+        this.value?.ipBase || '',
+        this.value?.gateway || '',
+        this.value?.vmidRange || '',
+        !!this.value?.cloudinit,
+      );
+    },
+
+    dnsCloudInitErr() {
+      return dnsCloudInitError(this.value?.nameservers || '', this.value?.searchdomain || '', !!this.value?.cloudinit);
+    },
+
+    addressingErrors() {
+      return [
+        this.requiredFieldsErr, this.ipBaseErr, this.gatewayErr,
+        this.ipSpanErr, this.nameserversErr, this.dnsCloudInitErr,
+      ].filter((e) => e !== '');
+    },
   },
 
   methods: {
@@ -265,7 +339,7 @@ export default {
         return;
       }
 
-      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid && this.diskRowsValid());
+      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid && this.diskRowsValid() && this.addressingValid());
     },
 
     addDiskRow() {
@@ -295,6 +369,20 @@ export default {
       }
 
       return this.diskRows.every((row) => rowError(row) === '');
+    },
+
+    /**
+     * Addressing problems must block saving too. The driver rejects the same
+     * values in PreCreateCheck, which is far too late: the pool saves cleanly
+     * and only the first machine to provision reveals the mistake.
+     */
+    addressingValid() {
+      return this.addressingErrors.length === 0;
+    },
+
+    /** The full validity expression, shared by every watcher that re-reports it. */
+    emitValidation() {
+      this.$emit('validationChanged', this.diskRowsValid() && this.addressingValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
     },
 
     fakeSelectOptions(list, value) {
@@ -360,10 +448,18 @@ export default {
       // too, and unlike the selects they hold real values.
       this.value.dataDisk = this.diskRows.map((row) => serializeRow(row));
 
-      // Addressing is DHCP-only for now: the driver discovers the address through
-      // the guest agent either way, and a hand-typed static ipconfig0 was a
-      // silent way to strand a node on an address nothing routes to.
-      this.value.ipconfig = 'ip=dhcp';
+      // Default the mode so a pool saved before this field existed keeps its
+      // previous DHCP behaviour rather than failing validation.
+      if (!this.value.ipMode) {
+        this.value.ipMode = 'dhcp';
+      }
+
+      // The driver rejects static fields left over from a mode switch, so clear
+      // them rather than shipping a pool it will refuse.
+      if (this.value.ipMode !== 'static') {
+        this.value.ipBase = '';
+        this.value.gateway = '';
+      }
 
       // One field drives both: cloud-init installs the SSH keys for `ciuser`,
       // and that is the account Rancher then logs in as. The driver applies the
@@ -425,8 +521,9 @@ export default {
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout',
         'netIface', 'netDevice', 'netBridge', 'netModel',
         'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout',
-        'ipconfig', 'ciuser', 'sshkeys',
+        'ciuser', 'sshkeys',
         'sshUser', 'sshPort',
+        'ipMode', 'ipBase', 'gateway', 'nameservers', 'searchdomain',
       ];
 
       booleanFields.forEach((key) => {
@@ -760,6 +857,68 @@ export default {
             :options="firewallOptions"
             :disabled="busy || !netOptionsEnabled"
           />
+        </div>
+      </div>
+
+      <div class="row mt-10">
+        <div class="col span-6">
+          <LabeledSelect
+            v-model:value="value.ipMode"
+            :options="ipModes"
+            option-key="value"
+            option-label="labelKey"
+            :localized-label="true"
+            label-key="driver.pve.machine.fields.ipMode"
+            :mode="mode"
+          />
+        </div>
+      </div>
+
+      <div v-if="isStaticIP" class="row mt-10">
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value="value.ipBase"
+            label-key="driver.pve.machine.fields.ipBase"
+            :placeholder="t('driver.pve.machine.placeholders.ipBase')"
+            :mode="mode"
+          />
+        </div>
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value="value.gateway"
+            label-key="driver.pve.machine.fields.gateway"
+            :placeholder="t('driver.pve.machine.placeholders.gateway')"
+            :mode="mode"
+          />
+        </div>
+      </div>
+
+      <div class="row mt-10">
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value="value.nameservers"
+            label-key="driver.pve.machine.fields.nameservers"
+            :placeholder="t('driver.pve.machine.placeholders.nameservers')"
+            :mode="mode"
+          />
+        </div>
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value="value.searchdomain"
+            label-key="driver.pve.machine.fields.searchdomain"
+            :placeholder="t('driver.pve.machine.placeholders.searchdomain')"
+            :mode="mode"
+          />
+        </div>
+      </div>
+
+      <!-- Errors render below the fields, not beside them: the right-hand
+           placement used for data disks pushed the layout around. -->
+      <div v-if="addressingErrors.length" class="row mt-5">
+        <div class="col span-12">
+          <p v-for="err in addressingErrors" :key="err" class="text-error">
+            {{ err }}
+          </p>
         </div>
       </div>
     </div>
