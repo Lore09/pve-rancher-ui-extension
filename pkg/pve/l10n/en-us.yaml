@@ -95,7 +95,8 @@ driver:
         # letting people fill in a VLAN that is silently dropped.
         networking: Leave the bridge empty to inherit the network of the template untouched. The remaining fields are only applied when a bridge is set.
         addressing: Static addressing gives each machine an address derived from its VMID, so the pool needs a VMID range. The machine with the lowest VMID gets the base address and each later VMID gets the next one. DNS applies in both modes; leave it empty to keep whatever DHCP supplies.
-        cloudInit: Required for data disks that get a filesystem — the driver formats and mounts them over SSH using the key cloud-init injects. Also required for static addressing, which is delivered through cloud-init, and for the DNS fields, which PVE applies as cloud-init options.
+        poolCapacity: This subnet addresses { count } machines starting at the base address. The VMID range may be wider - it only supplies ids, and machines fill the subnet from the base upward.
+        cloudInit: Always enabled. Cloud-init is the only channel that delivers the SSH key the driver uses to format data disks and that Rancher uses to bootstrap the node, plus the static address and the DNS settings. There is no supported configuration without it.
         vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep the VMs of one cluster in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
         vmNamePrefix: Prepended to the name Rancher generates, so a VM is named prefix-machinename. Useful for grouping the VMs of one cluster in the Proxmox list. Letters, digits and inner hyphens only.
         vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the login user of the image: debian for the Debian cloud image, rancher for Leap Micro."
@@ -129,7 +130,6 @@ driver:
         netMtu: MTU
         netFirewall: PVE Firewall
         cloudInit: Cloud-init
-        cloudInitEnabled: Configure cloud-init
         vmUser: VM User
         vmNamePrefix: VM Name Prefix
         vmidRange: VMID Range

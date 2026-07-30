@@ -13,7 +13,7 @@ import {
   FS_OPTIONS, emptyRow, parseRow, rowError, rowsError, serializeRow,
 } from '../disk-spec.ts';
 import {
-  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError,
+  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError, poolCapacity,
   requiredFieldsError, dnsCloudInitError,
 } from '../ip-config';
 
@@ -68,6 +68,21 @@ export default {
   async fetch() {
     this.errors = [];
     this.diskRows = (this.value?.dataDisk || []).map((entry) => parseRow(entry));
+
+    // Seed the addressing defaults here rather than only in `test()`, so the
+    // dropdown shows DHCP as soon as the form opens instead of blank. A blank
+    // select reads as "no default" and invites the user to leave it unset.
+    if (this.value && !this.value.ipMode) {
+      this.value.ipMode = 'dhcp';
+    }
+
+    // Cloud-init is mandatory: it is the only channel carrying the SSH key the
+    // driver and Rancher's system-agent both need, plus ipconfig0 and DNS. The
+    // driver forces it on regardless, so keep the stored config honest instead
+    // of letting a pool claim it is off.
+    if (this.value) {
+      this.value.cloudinit = true;
+    }
 
     if ( !this.credentialId ) {
       return;
@@ -303,6 +318,25 @@ export default {
       return nameserversError(this.value?.nameservers || '');
     },
 
+    /**
+     * The subnet caps how many machines the pool can hold, not the VMID range.
+     * Shown as a hint because it is the number the operator needs when sizing a
+     * pool, and getting it wrong otherwise only shows up as a machine that
+     * fails to provision.
+     */
+    poolCapacityHint() {
+      if (!this.isStaticIP) {
+        return '';
+      }
+      const n = poolCapacity(this.value?.ipBase || '');
+
+      if (n < 1) {
+        return '';
+      }
+
+      return this.t('driver.pve.machine.hints.poolCapacity', { count: n });
+    },
+
     /** Presence and consistency rules the per-field format checks cannot see. */
     requiredFieldsErr() {
       return requiredFieldsError(
@@ -449,10 +483,16 @@ export default {
       this.value.dataDisk = this.diskRows.map((row) => serializeRow(row));
 
       // Default the mode so a pool saved before this field existed keeps its
-      // previous DHCP behaviour rather than failing validation.
+      // previous DHCP behaviour rather than failing validation. Also seeded in
+      // `fetch` so the dropdown is never blank; repeated here because `test`
+      // also runs for configs this component never rendered.
       if (!this.value.ipMode) {
         this.value.ipMode = 'dhcp';
       }
+
+      // Mandatory, see `fetch`. Re-asserted here so a stored config can never
+      // ship with it off.
+      this.value.cloudinit = true;
 
       // The driver rejects static fields left over from a mode switch, so clear
       // them rather than shipping a pool it will refuse.
@@ -893,6 +933,15 @@ export default {
         </div>
       </div>
 
+      <!-- The subnet, not the VMID range, caps the pool. Showing the number
+           avoids the surprise of a machine failing to provision on scale-up. -->
+      <p
+        v-if="poolCapacityHint"
+        class="text-muted mt-5"
+      >
+        {{ poolCapacityHint }}
+      </p>
+
       <div class="row mt-10">
         <div class="col span-6">
           <LabeledInput
@@ -931,16 +980,12 @@ export default {
         {{ t('driver.pve.machine.hints.cloudInit') }}
       </p>
 
+      <!-- No enable/disable toggle: cloud-init is the only channel that carries
+           the SSH key, the address and the DNS settings, so the driver forces it
+           on. A checkbox here was a footgun that produced nodes which
+           provisioned cleanly and then never reached Ready. -->
       <div class="row">
-        <div class="col span-4 cloudinit-toggle">
-          <Checkbox
-            v-model:value="value.cloudinit"
-            :mode="mode"
-            :disabled="busy"
-            :label="t('driver.pve.machine.fields.cloudInitEnabled')"
-          />
-        </div>
-        <div class="col span-4">
+        <div class="col span-6">
           <LabeledInput
             v-model:value="value.sshUser"
             :mode="mode"
@@ -951,7 +996,7 @@ export default {
             required
           />
         </div>
-        <div class="col span-4">
+        <div class="col span-6">
           <LabeledInput
             v-model:value.number="value.sshPort"
             type="number"
@@ -962,11 +1007,6 @@ export default {
         </div>
       </div>
 
-      <Banner
-        v-if="needsCloudInit && !value.cloudinit"
-        color="error"
-        :label="t('driver.pve.machine.errors.cloudInitRequired')"
-      />
       <Banner
         v-if="sshUserWarning"
         color="warning"
@@ -1011,11 +1051,5 @@ export default {
     &__error {
       margin: 4px 0 0 0;
     }
-  }
-
-  .cloudinit-toggle {
-    display: flex;
-    align-items: center;
-    min-height: 40px;
   }
 </style>

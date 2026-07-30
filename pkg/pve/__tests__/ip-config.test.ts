@@ -1,5 +1,5 @@
 import {
-  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError,
+  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError, poolCapacity,
   requiredFieldsError, dnsCloudInitError,
 } from '../ip-config';
 
@@ -75,8 +75,23 @@ describe('spanError', () => {
     expect(spanError('10.10.20.10/24', '200-299')).toBe('');
   });
 
-  it('rejects a range that runs past the end of the subnet', () => {
-    expect(spanError('10.10.20.200/24', '200-299')).toContain('outside');
+  // Accepted on purpose: VMIDs are handed out lowest-free-first, so machines
+  // cluster at the bottom of the range and the subnet only has to hold the
+  // machines that exist at once. The driver reports per-machine exhaustion.
+  it('accepts a VMID range wider than the subnet', () => {
+    expect(spanError('10.10.20.200/24', '200-299')).toBe('');
+  });
+
+  it('accepts a /30 base with a wide VMID range', () => {
+    expect(spanError('10.10.20.9/30', '200-299')).toBe('');
+  });
+
+  it('rejects a base that is the network address', () => {
+    expect(spanError('10.10.20.0/24', '200-299')).toContain('network address');
+  });
+
+  it('rejects a base that is the broadcast address', () => {
+    expect(spanError('10.10.20.255/24', '200-299')).toContain('broadcast address');
   });
 
   it('stays silent when the range is not set yet', () => {
@@ -173,5 +188,25 @@ describe('address strictness matches Go', () => {
 
   it('still accepts a bare zero octet', () => {
     expect(ipBaseError('10.0.20.10/24')).toBe('');
+  });
+});
+
+describe('poolCapacity', () => {
+  it('counts the addresses from the base to the end of the subnet', () => {
+    // .9 on a /30 (.8-.11) leaves .9 and .10 usable before the .11 broadcast.
+    expect(poolCapacity('10.10.20.9/30')).toBe(2);
+  });
+
+  it('counts a full /24 from its first host', () => {
+    expect(poolCapacity('10.10.20.1/24')).toBe(254);
+  });
+
+  it('shrinks as the base moves up the subnet', () => {
+    expect(poolCapacity('10.10.20.250/24')).toBe(5);
+  });
+
+  it('returns 0 for an unparseable base rather than throwing', () => {
+    expect(poolCapacity('')).toBe(0);
+    expect(poolCapacity('nonsense')).toBe(0);
   });
 });

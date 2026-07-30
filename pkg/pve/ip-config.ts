@@ -79,10 +79,6 @@ function contains(p: Prefix, addr: number): boolean {
   return addr >= networkOf(p) && addr <= broadcastOf(p);
 }
 
-function toDotted(addr: number): string {
-  return [24, 16, 8, 0].map((shift) => (addr >>> shift) & 0xFF).join('.');
-}
-
 export function ipBaseError(base: string): string {
   if (!base.trim()) {
     return '';
@@ -261,14 +257,37 @@ export function spanError(base: string, vmidRange: string): string {
   if (!p) {
     return '';
   }
-  const last = p.addr + (hi - lo);
-
-  if (!contains(p, last)) {
-    return `The VMID range needs ${ hi - lo + 1 } addresses. The last would be ${ toDotted(last) }, which is outside the subnet.`;
+  // A VMID range wider than the subnet is NOT an error. VMIDs are handed out
+  // lowest-free-first, so machines cluster at the bottom of the range and the
+  // subnet only has to hold the machines that exist at once. Requiring full
+  // coverage demanded a /25 to run three nodes with a 100-wide range.
+  //
+  // Only the base itself is checked here; per-machine capacity is enforced by
+  // the driver, which reports it as pool exhaustion with a machine count.
+  if (p.addr === networkOf(p)) {
+    return 'Is the network address of its subnet and cannot be assigned to a machine. Use the next address.';
   }
-  if (last === broadcastOf(p) || p.addr === networkOf(p)) {
-    return 'The range maps onto the network or broadcast address of the subnet.';
+  if (p.addr === broadcastOf(p)) {
+    return 'Is the broadcast address of its subnet and cannot be assigned to a machine.';
   }
 
   return '';
+}
+
+/**
+ * How many machines the subnet can address starting at the base. This is what
+ * caps the pool, so the form surfaces it as information rather than an error.
+ * Returns 0 when the base cannot be parsed.
+ */
+export function poolCapacity(base: string): number {
+  if (!base.trim() || ipBaseError(base) !== '') {
+    return 0;
+  }
+  const p = parsePrefix(base);
+
+  if (!p) {
+    return 0;
+  }
+
+  return Math.max(0, broadcastOf(p) - p.addr);
 }
