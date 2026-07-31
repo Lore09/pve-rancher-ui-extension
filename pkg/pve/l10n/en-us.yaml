@@ -58,6 +58,9 @@ driver:
     machine:
       title: Proxmox VE Configuration
       loading: Loading resources from the Proxmox VE server...
+      sections:
+        placement: Placement
+        sizing: Sizing
       warnings:
         # Surfaces as a node that provisions fine and then never reaches Ready,
         # because nothing can log into it. A warning rather than an error — a
@@ -73,11 +76,14 @@ driver:
         unreachable: "Could not list resources from the Proxmox VE API. The Rancher UI proxy cannot reach it, usually because the Rancher server does not trust the Proxmox VE certificate. Enter the node, template VMID, storage and bridge by hand; provisioning does not use this proxy and is unaffected."
       placeholders:
         node: "pve1 — as shown under Datacenter in the PVE UI"
+        allowedNodes: "pve1, pve2 — optional"
         template: "9000"
+        pool: "rancher-managed — optional"
         diskMount: "/var/lib/longhorn"
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
         vmNamePrefix: "k8s — optional"
+        tags: "rancher, prod — optional"
         vmidRange: "200-299 — optional"
         vmUser: "debian for Debian, rancher for Leap Micro"
         ipStart: 192.168.15.150
@@ -90,6 +96,10 @@ driver:
         addDisk: Add Data Disk
         removeDisk: Remove
       hints:
+        placement: Where the VM is created and how it is identified in Proxmox VE. Node and Template are the only fields here the driver cannot default.
+        allowedNodes: "Comma-separated node names the driver may place VMs on, e.g. pve1, pve2. Empty considers every online node; the driver picks the one with the most free memory. Mutually exclusive with Target PVE Node — set one or the other, not both. No effect on a single-node install."
+        pool: "PVE resource pool new VMs are created into. Pair this with an API token whose destructive privileges are granted only on this pool (rather than on the whole cluster) so Rancher can manage the VMs it creates without being able to touch anything else in Proxmox VE — see the driver's rancher-setup.md for the full ACL recipe. Leave empty to create VMs outside any pool, as before."
+        tags: "Comma-separated PVE tags applied to the VM, e.g. rancher, prod. Purely informational to Proxmox VE — lets a VM this driver created be found and filtered in the PVE UI. Lowercase letters, digits, and _ + . - only."
         # Explains the division of labour the driver implements, so nobody goes
         # looking for a cloud-init drop-in to do it.
         dataDisks: Each disk is attached to the VM and, unless the filesystem is Raw, formatted and mounted at the given path by the driver before the node joins the cluster. Choose Raw only for storage backends that require an unformatted device, such as Ceph or Rook OSDs, or the Longhorn v2 data engine.
@@ -118,8 +128,11 @@ driver:
         disabled: Disabled
       fields:
         node: Target PVE Node
+        allowedNodes: Allowed Nodes
         template: Source Template (VMID)
+        pool: Resource Pool
         linkedClone: Use linked clone
+        tags: Tags
         cores: CPU Cores
         sockets: CPU Sockets
         memory: Memory (MB)

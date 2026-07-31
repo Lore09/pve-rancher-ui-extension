@@ -578,7 +578,7 @@ export default {
       ];
 
       const stringFields = [
-        'node', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
+        'node', 'allowedNodes', 'pool', 'tags', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout',
         'netIface', 'netDevice', 'netBridge', 'netModel',
@@ -647,129 +647,177 @@ export default {
       </div>
     </div>
 
-    <div class="row mt-10">
-      <div class="col span-3">
-        <LabeledSelect
-          v-if="!degraded"
-          v-model:value="nodes.selected"
-          label-key="driver.pve.machine.fields.node"
-          :options="nodes.options"
-          :disabled="!nodes.enabled || busy"
-          :loading="nodes.busy"
-          :searchable="true"
-        />
-        <LabeledInput
-          v-else
-          v-model:value="value.node"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.node"
-          :placeholder="t('driver.pve.machine.placeholders.node')"
-          required
-        />
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.sections.placement') }}
       </div>
-      <div class="col span-3">
-        <LabeledSelect
-          v-if="!degraded"
-          v-model:value="templates.selected"
-          label-key="driver.pve.machine.fields.template"
-          :options="templates.options"
-          :disabled="!templates.enabled || busy"
-          :loading="templates.busy"
-          :searchable="true"
-        />
-        <LabeledInput
-          v-else
-          v-model:value.number="value.templateVmid"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.template"
-          :placeholder="t('driver.pve.machine.placeholders.template')"
-          required
-        />
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.placement') }}
+      </p>
+
+      <div class="row">
+        <div class="col span-3">
+          <LabeledSelect
+            v-if="!degraded"
+            v-model:value="nodes.selected"
+            label-key="driver.pve.machine.fields.node"
+            :options="nodes.options"
+            :disabled="!nodes.enabled || busy"
+            :loading="nodes.busy"
+            :searchable="true"
+          />
+          <LabeledInput
+            v-else
+            v-model:value="value.node"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.node"
+            :placeholder="t('driver.pve.machine.placeholders.node')"
+            required
+          />
+        </div>
+        <div class="col span-3">
+          <LabeledInput
+            v-model:value="value.allowedNodes"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.allowedNodes"
+            :placeholder="t('driver.pve.machine.placeholders.allowedNodes')"
+            :tooltip="t('driver.pve.machine.hints.allowedNodes')"
+          />
+        </div>
+        <div class="col span-3">
+          <LabeledSelect
+            v-if="!degraded"
+            v-model:value="templates.selected"
+            label-key="driver.pve.machine.fields.template"
+            :options="templates.options"
+            :disabled="!templates.enabled || busy"
+            :loading="templates.busy"
+            :searchable="true"
+          />
+          <LabeledInput
+            v-else
+            v-model:value.number="value.templateVmid"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.template"
+            :placeholder="t('driver.pve.machine.placeholders.template')"
+            required
+          />
+        </div>
+        <div class="col span-3">
+          <LabeledInput
+            v-model:value="value.pool"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.pool"
+            :placeholder="t('driver.pve.machine.placeholders.pool')"
+            :tooltip="t('driver.pve.machine.hints.pool')"
+          />
+        </div>
       </div>
-      <div class="col span-3">
-        <LabeledInput
-          v-model:value="value.vmidRange"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.vmidRange"
-          :placeholder="t('driver.pve.machine.placeholders.vmidRange')"
-          :tooltip="t('driver.pve.machine.hints.vmidRange')"
-        />
+
+      <div class="row mt-10">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.vmidRange"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.vmidRange"
+            :placeholder="t('driver.pve.machine.placeholders.vmidRange')"
+            :tooltip="t('driver.pve.machine.hints.vmidRange')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.vmNamePrefix"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.vmNamePrefix"
+            :placeholder="t('driver.pve.machine.placeholders.vmNamePrefix')"
+            :tooltip="t('driver.pve.machine.hints.vmNamePrefix')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.tags"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.tags"
+            :placeholder="t('driver.pve.machine.placeholders.tags')"
+            :tooltip="t('driver.pve.machine.hints.tags')"
+          />
+        </div>
       </div>
-      <div class="col span-3">
-        <LabeledInput
-          v-model:value="value.vmNamePrefix"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.vmNamePrefix"
-          :placeholder="t('driver.pve.machine.placeholders.vmNamePrefix')"
-          :tooltip="t('driver.pve.machine.hints.vmNamePrefix')"
-        />
+
+      <div class="row mt-10">
+        <div class="col span-12">
+          <Checkbox
+            v-model:value="value.linkedClone"
+            :mode="mode"
+            :disabled="busy"
+            :label="t('driver.pve.machine.fields.linkedClone')"
+          />
+          <p class="text-muted mt-5">
+            {{ t('driver.pve.machine.hints.linkedClone') }}
+          </p>
+          <Banner
+            v-if="value.linkedClone"
+            color="warning"
+            class="mt-10"
+            :label="t('driver.pve.machine.warnings.linkedClone')"
+          />
+        </div>
       </div>
     </div>
 
-    <div class="row mt-10">
-      <div class="col span-12">
-        <Checkbox
-          v-model:value="value.linkedClone"
-          :mode="mode"
-          :disabled="busy"
-          :label="t('driver.pve.machine.fields.linkedClone')"
-        />
-        <p class="text-muted mt-5">
-          {{ t('driver.pve.machine.hints.linkedClone') }}
-        </p>
-        <Banner
-          v-if="value.linkedClone"
-          color="warning"
-          class="mt-10"
-          :label="t('driver.pve.machine.warnings.linkedClone')"
-        />
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.sections.sizing') }}
       </div>
-    </div>
 
-    <div class="row mt-10">
-      <div class="col span-4">
-        <LabeledInput
-          v-model:value="value.cores"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.cores"
-        />
+      <div class="row">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.cores"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.cores"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.sockets"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.sockets"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.memory"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.memory"
+          />
+        </div>
       </div>
-      <div class="col span-4">
-        <LabeledInput
-          v-model:value="value.sockets"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.sockets"
-        />
-      </div>
-      <div class="col span-4">
-        <LabeledInput
-          v-model:value="value.memory"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.memory"
-        />
-      </div>
-    </div>
 
-    <div class="row mt-10">
-      <div class="col span-4">
-        <LabeledInput
-          v-model:value="value.bootDiskSize"
-          type="number"
-          :mode="mode"
-          :disabled="busy"
-          label-key="driver.pve.machine.fields.bootDiskSize"
-        />
+      <div class="row mt-10">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.bootDiskSize"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.bootDiskSize"
+          />
+        </div>
       </div>
     </div>
 
