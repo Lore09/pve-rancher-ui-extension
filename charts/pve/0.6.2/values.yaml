@@ -1,0 +1,16 @@
+nameOverride: ""
+fullnameOverride: ""
+plugin:
+  enabled: true
+  versionOverride: ""
+  endpoint: >-
+    https://raw.githubusercontent.com/Lore09/pve-rancher-ui-extension/master/extensions/pve/0.6.2
+  compressedEndpoint: >-
+    https://raw.githubusercontent.com/Lore09/pve-rancher-ui-extension/master/extensions/pve/0.6.2.tgz
+  noCache: false
+  noAuth: false
+  metadata:
+    catalog.cattle.io/display-name: Proxmox VE Node Driver UI
+    catalog.cattle.io/kube-version: ">= 1.16.0-0"
+    catalog.cattle.io/rancher-version: ">= 2.10.0-0"
+    catalog.cattle.io/ui-extensions-version: ">= 3.0.0 < 4.0.0"
