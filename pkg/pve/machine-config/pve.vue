@@ -588,7 +588,7 @@ export default {
       const stringFields = [
         'node', 'allowedNodes', 'pool', 'tags', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
-        'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout',
+        'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout', 'provisionDelay',
         'netIface', 'netDevice', 'netBridge', 'netModel',
         'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout',
         'ciuser', 'sshkeys',
@@ -827,6 +827,16 @@ export default {
             :mode="mode"
             :disabled="busy"
             label-key="driver.pve.machine.fields.bootDiskSize"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.provisionDelay"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.provisionDelay"
+            :tooltip="t('driver.pve.machine.hints.provisionDelay')"
           />
         </div>
       </div>
