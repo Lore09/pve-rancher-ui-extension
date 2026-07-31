@@ -1,6 +1,6 @@
 import {
-  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError, poolCapacity,
-  requiredFieldsError, dnsCloudInitError,
+  IP_MODES, prefixError, ipStartError, ipEndError, poolError, gatewayError,
+  nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity,
 } from '../ip-config';
 
 describe('IP_MODES', () => {
@@ -9,47 +9,122 @@ describe('IP_MODES', () => {
   });
 });
 
-describe('ipBaseError', () => {
-  it('accepts an IPv4 CIDR', () => {
-    expect(ipBaseError('10.10.20.10/24')).toBe('');
-  });
-
-  it('rejects a bare address with no prefix', () => {
-    expect(ipBaseError('10.10.20.10')).toContain('prefix');
+describe('prefixError', () => {
+  it.each([['24'], ['/24'], ['16'], ['30'], ['8']])('accepts %s', (input) => {
+    expect(prefixError(input)).toBe('');
   });
 
   it('rejects a prefix with no usable hosts', () => {
-    expect(ipBaseError('10.10.20.10/31')).toContain('/30');
+    expect(prefixError('31')).toContain('between 8 and 30');
   });
 
-  it('rejects a malformed octet', () => {
-    expect(ipBaseError('10.10.20.999/24')).not.toBe('');
+  it('rejects a prefix below /8', () => {
+    expect(prefixError('4')).not.toBe('');
   });
 
-  it('rejects IPv6', () => {
-    expect(ipBaseError('2001:db8::10/64')).toContain('IPv4');
+  it('rejects a non-numeric prefix', () => {
+    expect(prefixError('24bits')).not.toBe('');
+  });
+
+  // The whole reason the prefix is its own field.
+  it('explains that it is the netmask and not the pool size', () => {
+    expect(prefixError('31')).toContain('not the size of the pool');
   });
 
   it('treats empty as no error so the field can start blank', () => {
-    expect(ipBaseError('')).toBe('');
+    expect(prefixError('')).toBe('');
+  });
+});
+
+describe('ipStartError', () => {
+  it('accepts an IPv4 address', () => {
+    expect(ipStartError('192.168.15.150')).toBe('');
+  });
+
+  it('rejects a CIDR, since the prefix is a separate field', () => {
+    expect(ipStartError('192.168.15.150/24')).not.toBe('');
+  });
+
+  it('rejects a malformed octet', () => {
+    expect(ipStartError('192.168.15.999')).not.toBe('');
+  });
+
+  it('treats empty as no error', () => {
+    expect(ipStartError('')).toBe('');
+  });
+});
+
+describe('ipEndError', () => {
+  it('accepts an end above the start', () => {
+    expect(ipEndError('192.168.15.159', '192.168.15.150')).toBe('');
+  });
+
+  it('accepts an end equal to the start, a one-machine pool', () => {
+    expect(ipEndError('192.168.15.150', '192.168.15.150')).toBe('');
+  });
+
+  it('rejects an end below the start', () => {
+    expect(ipEndError('192.168.15.140', '192.168.15.150')).toContain('below the start');
+  });
+
+  it('stays silent while the start is still incomplete', () => {
+    expect(ipEndError('192.168.15.159', '')).toBe('');
+  });
+});
+
+describe('poolError', () => {
+  it('accepts a pool inside one subnet', () => {
+    expect(poolError('192.168.15.150', '192.168.15.159', '24')).toBe('');
+  });
+
+  // A /28 around .150 spans .144-.159, so a pool reaching .170 straddles two.
+  it('rejects a pool whose ends are in different subnets', () => {
+    expect(poolError('192.168.15.150', '192.168.15.170', '28')).toContain('same /28 subnet');
+  });
+
+  it('rejects a pool containing the network address', () => {
+    expect(poolError('192.168.15.0', '192.168.15.10', '24')).toContain('network address');
+  });
+
+  it('rejects a pool containing the broadcast address', () => {
+    expect(poolError('192.168.15.250', '192.168.15.255', '24')).toContain('broadcast address');
+  });
+
+  // The exact config that prompted the three-field design.
+  it('rejects the /28 pool that ends on the subnet broadcast', () => {
+    expect(poolError('192.168.15.150', '192.168.15.159', '28')).toContain('broadcast address');
+  });
+
+  it.each([
+    ['', '192.168.15.159', '24'],
+    ['192.168.15.150', '', '24'],
+    ['192.168.15.150', '192.168.15.159', ''],
+  ])('stays silent while a field is still blank (%s, %s, %s)', (a, b, c) => {
+    expect(poolError(a, b, c)).toBe('');
   });
 });
 
 describe('gatewayError', () => {
-  it('accepts a gateway inside the subnet', () => {
-    expect(gatewayError('10.10.20.1', '10.10.20.10/24')).toBe('');
+  // The case that started this: outside the pool is fine, that is normal.
+  it('accepts a gateway outside the pool but inside the subnet', () => {
+    expect(gatewayError('192.168.15.1', '192.168.15.150', '24')).toBe('');
   });
 
   it('rejects a gateway outside the subnet', () => {
-    expect(gatewayError('10.10.99.1', '10.10.20.10/24')).toContain('subnet');
+    expect(gatewayError('192.168.15.1', '192.168.15.150', '28')).toContain('outside the /28 subnet');
+  });
+
+  it('explains that outside the pool is allowed but outside the subnet is not', () => {
+    expect(gatewayError('192.168.15.1', '192.168.15.150', '28')).toContain('outside the pool');
   });
 
   it('rejects a malformed gateway', () => {
-    expect(gatewayError('nope', '10.10.20.10/24')).not.toBe('');
+    expect(gatewayError('nope', '192.168.15.150', '24')).not.toBe('');
   });
 
-  it('stays silent while the base is still incomplete', () => {
-    expect(gatewayError('10.10.20.1', '')).toBe('');
+  it('stays silent while the start or prefix is incomplete', () => {
+    expect(gatewayError('192.168.15.1', '', '24')).toBe('');
+    expect(gatewayError('192.168.15.1', '192.168.15.150', '')).toBe('');
   });
 });
 
@@ -68,73 +143,55 @@ describe('nameserversError', () => {
   it('rejects a hostname', () => {
     expect(nameserversError('dns.example.com')).toContain('dns.example.com');
   });
-});
 
-describe('spanError', () => {
-  it('accepts a range that fits the subnet', () => {
-    expect(spanError('10.10.20.10/24', '200-299')).toBe('');
-  });
-
-  // Accepted on purpose: VMIDs are handed out lowest-free-first, so machines
-  // cluster at the bottom of the range and the subnet only has to hold the
-  // machines that exist at once. The driver reports per-machine exhaustion.
-  it('accepts a VMID range wider than the subnet', () => {
-    expect(spanError('10.10.20.200/24', '200-299')).toBe('');
-  });
-
-  it('accepts a /30 base with a wide VMID range', () => {
-    expect(spanError('10.10.20.9/30', '200-299')).toBe('');
-  });
-
-  it('rejects a base that is the network address', () => {
-    expect(spanError('10.10.20.0/24', '200-299')).toContain('network address');
-  });
-
-  it('rejects a base that is the broadcast address', () => {
-    expect(spanError('10.10.20.255/24', '200-299')).toContain('broadcast address');
-  });
-
-  it('stays silent when the range is not set yet', () => {
-    expect(spanError('10.10.20.10/24', '')).toBe('');
-  });
+  // Go's netip.ParseAddr is stricter than a character-class test.
+  it.each([['2001:db8:::1'], ['::::'], ['1:2:3:4:5:6:7:8:9'], ['12345::1']])(
+    'rejects the malformed IPv6 resolver %s', (input) => {
+      expect(nameserversError(input)).toContain('not a valid IP address');
+    },
+  );
 });
 
 // The driver rejects each of these in PreCreateCheck; catching them on the form
-// is the whole point of this mirror, so every rule gets a case here.
+// is the point of this mirror, so every rule gets a case.
 describe('requiredFieldsError', () => {
+  const ok = ['static', '192.168.15.150', '192.168.15.159', '24', '192.168.15.1', '200-299', true] as const;
+
   it('says nothing in dhcp mode, whatever else is empty', () => {
-    expect(requiredFieldsError('dhcp', '', '', '', false)).toBe('');
-  });
-
-  it('rejects static mode with no base address', () => {
-    expect(requiredFieldsError('static', '', '10.10.20.1', '200-299', true)).toContain('base address');
-  });
-
-  it('rejects static mode with no gateway', () => {
-    expect(requiredFieldsError('static', '10.10.20.10/24', '', '200-299', true)).toContain('gateway');
-  });
-
-  it('rejects static mode with cloud-init off', () => {
-    expect(requiredFieldsError('static', '10.10.20.10/24', '10.10.20.1', '200-299', false)).toContain('cloud-init');
-  });
-
-  it('rejects static mode with no VMID range', () => {
-    expect(requiredFieldsError('static', '10.10.20.10/24', '10.10.20.1', '', true)).toContain('VMID range');
+    expect(requiredFieldsError('dhcp', '', '', '', '', '', false)).toBe('');
   });
 
   it('accepts a complete static config', () => {
-    expect(requiredFieldsError('static', '10.10.20.10/24', '10.10.20.1', '200-299', true)).toBe('');
+    expect(requiredFieldsError(...ok)).toBe('');
   });
 
-  // Order matters: the form should report the same first problem the driver
-  // would, and the driver checks the base before the gateway.
-  it('reports the base before the gateway when both are missing', () => {
-    expect(requiredFieldsError('static', '', '', '', true)).toContain('base address');
+  it('rejects a missing start address', () => {
+    expect(requiredFieldsError('static', '', '192.168.15.159', '24', '192.168.15.1', '200-299', true)).toContain('start address');
   });
 
-  // Cloud-init is checked before the VMID range in validateAddressing.
-  it('reports cloud-init before the VMID range when both are wrong', () => {
-    expect(requiredFieldsError('static', '10.10.20.10/24', '10.10.20.1', '', false)).toContain('cloud-init');
+  it('rejects a missing end address', () => {
+    expect(requiredFieldsError('static', '192.168.15.150', '', '24', '192.168.15.1', '200-299', true)).toContain('end address');
+  });
+
+  it('rejects a missing prefix', () => {
+    expect(requiredFieldsError('static', '192.168.15.150', '192.168.15.159', '', '192.168.15.1', '200-299', true)).toContain('subnet prefix');
+  });
+
+  it('rejects a missing gateway', () => {
+    expect(requiredFieldsError('static', '192.168.15.150', '192.168.15.159', '24', '', '200-299', true)).toContain('gateway');
+  });
+
+  it('rejects cloud-init off', () => {
+    expect(requiredFieldsError('static', '192.168.15.150', '192.168.15.159', '24', '192.168.15.1', '200-299', false)).toContain('cloud-init');
+  });
+
+  it('rejects a missing VMID range', () => {
+    expect(requiredFieldsError('static', '192.168.15.150', '192.168.15.159', '24', '192.168.15.1', '', true)).toContain('VMID range');
+  });
+
+  // Order matters: the form must report the same first problem the driver does.
+  it('reports the start address before the end when both are missing', () => {
+    expect(requiredFieldsError('static', '', '', '', '', '', true)).toContain('start address');
   });
 });
 
@@ -156,57 +213,21 @@ describe('dnsCloudInitError', () => {
   });
 });
 
-// Go's netip.ParseAddr is stricter than a character-class test, and anything it
-// rejects fails at provision time instead of on the form.
-describe('address strictness matches Go', () => {
-  it.each([
-    ['2001:db8:::1'],
-    ['::::'],
-    ['1:2:3:4:5:6:7:8:9'],
-    ['12345::1'],
-    ['1:2:3:4:5:6:7'],
-  ])('rejects the malformed IPv6 resolver %s', (input) => {
-    expect(nameserversError(input)).toContain('not a valid IP address');
-  });
-
-  it.each([
-    ['::'],
-    ['::1'],
-    ['2606:4700:4700::1111'],
-    ['1:2:3:4:5:6:7:8'],
-  ])('accepts the well-formed IPv6 resolver %s', (input) => {
-    expect(nameserversError(input)).toBe('');
-  });
-
-  it('rejects an octet with a leading zero', () => {
-    expect(ipBaseError('010.10.20.10/24')).toContain('IPv4 address with a prefix');
-  });
-
-  it('rejects a leading zero in a gateway octet', () => {
-    expect(gatewayError('10.10.20.01', '10.10.20.10/24')).toContain('IPv4 address');
-  });
-
-  it('still accepts a bare zero octet', () => {
-    expect(ipBaseError('10.0.20.10/24')).toBe('');
-  });
-});
-
 describe('poolCapacity', () => {
-  it('counts the addresses from the base to the end of the subnet', () => {
-    // .9 on a /30 (.8-.11) leaves .9 and .10 usable before the .11 broadcast.
-    expect(poolCapacity('10.10.20.9/30')).toBe(2);
+  it('counts both ends inclusively', () => {
+    expect(poolCapacity('192.168.15.150', '192.168.15.159')).toBe(10);
   });
 
-  it('counts a full /24 from its first host', () => {
-    expect(poolCapacity('10.10.20.1/24')).toBe(254);
+  it('counts a single-address pool as one machine', () => {
+    expect(poolCapacity('192.168.15.150', '192.168.15.150')).toBe(1);
   });
 
-  it('shrinks as the base moves up the subnet', () => {
-    expect(poolCapacity('10.10.20.250/24')).toBe(5);
+  it('counts across an octet boundary', () => {
+    expect(poolCapacity('10.10.20.250', '10.10.21.4')).toBe(11);
   });
 
-  it('returns 0 for an unparseable base rather than throwing', () => {
-    expect(poolCapacity('')).toBe(0);
-    expect(poolCapacity('nonsense')).toBe(0);
+  it('returns 0 for an incomplete or inverted pool rather than throwing', () => {
+    expect(poolCapacity('', '')).toBe(0);
+    expect(poolCapacity('192.168.15.159', '192.168.15.150')).toBe(0);
   });
 });

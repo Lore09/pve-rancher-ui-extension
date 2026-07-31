@@ -79,8 +79,10 @@ driver:
         vmNamePrefix: "k8s — optional"
         vmidRange: "200-299 — optional"
         vmUser: "debian for Debian, rancher for Leap Micro"
-        ipBase: 10.10.20.10/24
-        gateway: 10.10.20.1
+        ipStart: 192.168.15.150
+        ipEnd: 192.168.15.159
+        ipPrefix: 24
+        gateway: 192.168.15.1
         nameservers: 10.10.20.1 1.1.1.1
         searchdomain: cluster.lan
       actions:
@@ -94,8 +96,10 @@ driver:
         # NIC, which only happens when a bridge is named — say so rather than
         # letting people fill in a VLAN that is silently dropped.
         networking: Leave the bridge empty to inherit the network of the template untouched. The remaining fields are only applied when a bridge is set.
-        addressing: Static addressing gives each machine an address derived from its VMID, so the pool needs a VMID range. The machine with the lowest VMID gets the base address and each later VMID gets the next one. DNS applies in both modes; leave it empty to keep whatever DHCP supplies.
-        poolCapacity: This subnet addresses { count } machines starting at the base address. The VMID range may be wider - it only supplies ids, and machines fill the subnet from the base upward.
+        addressing: Static addressing gives each machine an address derived from its VMID, so the pool needs a VMID range. The machine with the lowest VMID gets the start address and each later VMID gets the next one. DNS applies in both modes; leave it empty to keep whatever DHCP supplies.
+        ipPrefix: The netmask the machines get, not the size of the pool. Set it to the prefix of the real network, usually 24. Writing a small prefix to limit the pool narrows the subnet instead and can leave the gateway unreachable.
+        gateway: May sit outside the pool - that is normal. It must be inside the subnet the prefix describes, or the node has no route to it.
+        poolCapacity: This pool holds { count } machines. The VMID range may be wider - it only supplies ids, and machines fill the pool from the start address upward.
         cloudInit: Always enabled. Cloud-init is the only channel that delivers the SSH key the driver uses to format data disks and that Rancher uses to bootstrap the node, plus the static address and the DNS settings. There is no supported configuration without it.
         vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep the VMs of one cluster in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
         vmNamePrefix: Prepended to the name Rancher generates, so a VM is named prefix-machinename. Useful for grouping the VMs of one cluster in the Proxmox list. Letters, digits and inner hyphens only.
@@ -135,7 +139,9 @@ driver:
         vmidRange: VMID Range
         sshPort: SSH Port
         ipMode: Addressing
-        ipBase: Base address
+        ipStart: Start address
+        ipEnd: End address
+        ipPrefix: Subnet prefix
         gateway: Gateway
         nameservers: DNS servers
         searchdomain: DNS search domain

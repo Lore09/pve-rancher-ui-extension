@@ -13,8 +13,8 @@ import {
   FS_OPTIONS, emptyRow, parseRow, rowError, rowsError, serializeRow,
 } from '../disk-spec.ts';
 import {
-  IP_MODES, ipBaseError, gatewayError, nameserversError, spanError, poolCapacity,
-  requiredFieldsError, dnsCloudInitError,
+  IP_MODES, prefixError, ipStartError, ipEndError, poolError, gatewayError,
+  nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity,
 } from '../ip-config';
 
 function initOptions() {
@@ -213,7 +213,15 @@ export default {
       this.emitValidation();
     },
 
-    'value.ipBase'() {
+    'value.ipStart'() {
+      this.emitValidation();
+    },
+
+    'value.ipEnd'() {
+      this.emitValidation();
+    },
+
+    'value.ipPrefix'() {
       this.emitValidation();
     },
 
@@ -302,16 +310,25 @@ export default {
       return this.value?.ipMode === 'static';
     },
 
-    ipBaseErr() {
-      return this.isStaticIP ? ipBaseError(this.value?.ipBase || '') : '';
+    ipStartErr() {
+      return this.isStaticIP ? ipStartError(this.value?.ipStart || '') : '';
+    },
+
+    ipEndErr() {
+      return this.isStaticIP ? ipEndError(this.value?.ipEnd || '', this.value?.ipStart || '') : '';
+    },
+
+    ipPrefixErr() {
+      return this.isStaticIP ? prefixError(this.value?.ipPrefix || '') : '';
+    },
+
+    /** Cross-field checks: both ends in one subnet, no network/broadcast. */
+    ipPoolErr() {
+      return this.isStaticIP ? poolError(this.value?.ipStart || '', this.value?.ipEnd || '', this.value?.ipPrefix || '') : '';
     },
 
     gatewayErr() {
-      return this.isStaticIP ? gatewayError(this.value?.gateway || '', this.value?.ipBase || '') : '';
-    },
-
-    ipSpanErr() {
-      return this.isStaticIP ? spanError(this.value?.ipBase || '', this.value?.vmidRange || '') : '';
+      return this.isStaticIP ? gatewayError(this.value?.gateway || '', this.value?.ipStart || '', this.value?.ipPrefix || '') : '';
     },
 
     nameserversErr() {
@@ -328,7 +345,7 @@ export default {
       if (!this.isStaticIP) {
         return '';
       }
-      const n = poolCapacity(this.value?.ipBase || '');
+      const n = poolCapacity(this.value?.ipStart || '', this.value?.ipEnd || '');
 
       if (n < 1) {
         return '';
@@ -341,7 +358,9 @@ export default {
     requiredFieldsErr() {
       return requiredFieldsError(
         this.value?.ipMode || '',
-        this.value?.ipBase || '',
+        this.value?.ipStart || '',
+        this.value?.ipEnd || '',
+        this.value?.ipPrefix || '',
         this.value?.gateway || '',
         this.value?.vmidRange || '',
         !!this.value?.cloudinit,
@@ -354,8 +373,9 @@ export default {
 
     addressingErrors() {
       return [
-        this.requiredFieldsErr, this.ipBaseErr, this.gatewayErr,
-        this.ipSpanErr, this.nameserversErr, this.dnsCloudInitErr,
+        this.requiredFieldsErr, this.ipStartErr, this.ipEndErr,
+        this.ipPrefixErr, this.ipPoolErr, this.gatewayErr,
+        this.nameserversErr, this.dnsCloudInitErr,
       ].filter((e) => e !== '');
     },
   },
@@ -497,7 +517,9 @@ export default {
       // The driver rejects static fields left over from a mode switch, so clear
       // them rather than shipping a pool it will refuse.
       if (this.value.ipMode !== 'static') {
-        this.value.ipBase = '';
+        this.value.ipStart = '';
+        this.value.ipEnd = '';
+        this.value.ipPrefix = '';
         this.value.gateway = '';
       }
 
@@ -563,7 +585,7 @@ export default {
         'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout',
         'ciuser', 'sshkeys',
         'sshUser', 'sshPort',
-        'ipMode', 'ipBase', 'gateway', 'nameservers', 'searchdomain',
+        'ipMode', 'ipStart', 'ipEnd', 'ipPrefix', 'gateway', 'nameservers', 'searchdomain',
       ];
 
       booleanFields.forEach((key) => {
@@ -914,27 +936,52 @@ export default {
         </div>
       </div>
 
+      <!-- Start and end bound the pool; the prefix is the netmask the machines
+           get. They are separate fields because folding them into one CIDR made
+           people write /28 to mean "16 addresses", which silently narrowed the
+           subnet until the gateway fell outside it. -->
       <div v-if="isStaticIP" class="row mt-10">
-        <div class="col span-6">
+        <div class="col span-4">
           <LabeledInput
-            v-model:value="value.ipBase"
-            label-key="driver.pve.machine.fields.ipBase"
-            :placeholder="t('driver.pve.machine.placeholders.ipBase')"
+            v-model:value="value.ipStart"
+            label-key="driver.pve.machine.fields.ipStart"
+            :placeholder="t('driver.pve.machine.placeholders.ipStart')"
             :mode="mode"
           />
         </div>
-        <div class="col span-6">
+        <div class="col span-4">
           <LabeledInput
-            v-model:value="value.gateway"
-            label-key="driver.pve.machine.fields.gateway"
-            :placeholder="t('driver.pve.machine.placeholders.gateway')"
+            v-model:value="value.ipEnd"
+            label-key="driver.pve.machine.fields.ipEnd"
+            :placeholder="t('driver.pve.machine.placeholders.ipEnd')"
+            :mode="mode"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value="value.ipPrefix"
+            label-key="driver.pve.machine.fields.ipPrefix"
+            :placeholder="t('driver.pve.machine.placeholders.ipPrefix')"
+            :tooltip="t('driver.pve.machine.hints.ipPrefix')"
             :mode="mode"
           />
         </div>
       </div>
 
-      <!-- The subnet, not the VMID range, caps the pool. Showing the number
-           avoids the surprise of a machine failing to provision on scale-up. -->
+      <div v-if="isStaticIP" class="row mt-10">
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value="value.gateway"
+            label-key="driver.pve.machine.fields.gateway"
+            :placeholder="t('driver.pve.machine.placeholders.gateway')"
+            :tooltip="t('driver.pve.machine.hints.gateway')"
+            :mode="mode"
+          />
+        </div>
+      </div>
+
+      <!-- The pool, not the VMID range, caps the machine count. Showing the
+           number avoids the surprise of a machine failing on scale-up. -->
       <p
         v-if="poolCapacityHint"
         class="text-muted mt-5"
