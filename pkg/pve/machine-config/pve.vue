@@ -586,7 +586,7 @@ export default {
       ];
 
       const stringFields = [
-        'node', 'allowedNodes', 'pool', 'tags', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
+        'node', 'allowedNodes', 'tags', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout', 'provisionDelay',
         'netIface', 'netDevice', 'netBridge', 'netModel',
@@ -664,7 +664,7 @@ export default {
       </p>
 
       <div class="row">
-        <div class="col span-3">
+        <div class="col span-4">
           <LabeledSelect
             v-if="!degraded"
             v-model:value="nodes.selected"
@@ -684,7 +684,7 @@ export default {
             required
           />
         </div>
-        <div class="col span-3">
+        <div class="col span-4">
           <LabeledInput
             v-model:value="value.allowedNodes"
             :mode="mode"
@@ -694,7 +694,7 @@ export default {
             :tooltip="t('driver.pve.machine.hints.allowedNodes')"
           />
         </div>
-        <div class="col span-3">
+        <div class="col span-4">
           <LabeledSelect
             v-if="!degraded"
             v-model:value="templates.selected"
@@ -713,16 +713,6 @@ export default {
             label-key="driver.pve.machine.fields.template"
             :placeholder="t('driver.pve.machine.placeholders.template')"
             required
-          />
-        </div>
-        <div class="col span-3">
-          <LabeledInput
-            v-model:value="value.pool"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.pool"
-            :placeholder="t('driver.pve.machine.placeholders.pool')"
-            :tooltip="t('driver.pve.machine.hints.pool')"
           />
         </div>
       </div>
