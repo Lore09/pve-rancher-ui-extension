@@ -79,56 +79,121 @@ function contains(p: Prefix, addr: number): boolean {
   return addr >= networkOf(p) && addr <= broadcastOf(p);
 }
 
-export function ipBaseError(base: string): string {
-  if (!base.trim()) {
+const MIN_PREFIX = 8;
+
+/** Parses --pve-ip-prefix, accepting either "24" or "/24". */
+function parseBits(prefix: string): number | null {
+  const t = prefix.trim().replace(/^\//, '');
+
+  if (!/^\d{1,2}$/.test(t)) {
+    return null;
+  }
+  const bits = Number(t);
+
+  if (bits < MIN_PREFIX || bits > MIN_PREFIX_BITS) {
+    return null;
+  }
+
+  return bits;
+}
+
+export function prefixError(prefix: string): string {
+  if (!prefix.trim()) {
     return '';
   }
-  if (base.includes(':')) {
-    return 'Must be IPv4. IPv6 addressing is not supported.';
-  }
-  const p = parsePrefix(base);
-
-  if (!p) {
-    return 'Must be an IPv4 address with a prefix, for example 10.10.20.10/24';
-  }
-  if (p.bits > MIN_PREFIX_BITS) {
-    return 'Has no usable host addresses. Use /30 or larger.';
+  if (parseBits(prefix) === null) {
+    return `Must be a prefix length between ${ MIN_PREFIX } and ${ MIN_PREFIX_BITS }, for example 24. This is the netmask the machines get, not the size of the pool.`;
   }
 
   return '';
 }
 
-export function gatewayError(gw: string, base: string): string {
-  if (!gw.trim()) {
+export function ipStartError(start: string): string {
+  if (!start.trim()) {
     return '';
   }
-  const addr = parseIPv4(gw);
-
-  if (addr === null) {
-    return 'Must be an IPv4 address, for example 10.10.20.1';
+  if (parseIPv4(start) === null) {
+    return 'Must be an IPv4 address, for example 192.168.15.150';
   }
-  // Say nothing until the base is valid, or the user sees a spurious error
-  // while still typing it.
-  if (ipBaseError(base) !== '' || !base.trim()) {
+
+  return '';
+}
+
+export function ipEndError(end: string, start: string): string {
+  if (!end.trim()) {
     return '';
   }
-  const p = parsePrefix(base);
+  const e = parseIPv4(end);
 
-  if (p && !contains(p, addr)) {
-    return 'Is outside the subnet of the base address.';
+  if (e === null) {
+    return 'Must be an IPv4 address, for example 192.168.15.159';
+  }
+  const st = parseIPv4(start);
+
+  if (st !== null && e < st) {
+    return 'Must not be below the start address.';
   }
 
   return '';
 }
 
 /**
- * True for addresses Go's netip.ParseAddr would accept as IPv6. A bare
- * `[0-9a-fA-F:]+` test is not enough: it lets through `2001:db8:::1` and
- * `::::`, which pass the form and then fail in the driver.
- *
- * Zone ids and embedded IPv4 (`::ffff:10.0.0.1`) are out of scope here — the
- * field is a resolver list, and the driver has the final word either way.
+ * Checks the pool as a whole: both ends in the same subnet, and neither end on
+ * the subnet's network or broadcast address.
  */
+export function poolError(start: string, end: string, prefix: string): string {
+  const st = parseIPv4(start);
+  const e = parseIPv4(end);
+  const bits = parseBits(prefix);
+
+  // Stay silent until all three are present and individually valid, or the user
+  // sees a spurious pool error while still typing.
+  if (st === null || e === null || bits === null || e < st) {
+    return '';
+  }
+  const p: Prefix = { addr: st, bits };
+
+  if (!contains(p, e)) {
+    return `The start and end addresses are not in the same /${ bits } subnet. Widen the subnet prefix, or move one end of the pool.`;
+  }
+  if (st === networkOf(p) || e === networkOf(p)) {
+    return 'The pool includes the network address of its subnet, which cannot be assigned to a machine.';
+  }
+  if (st === broadcastOf(p) || e === broadcastOf(p)) {
+    return 'The pool includes the broadcast address of its subnet, which cannot be assigned to a machine.';
+  }
+
+  return '';
+}
+
+/**
+ * The gateway belongs to the subnet, not the pool. It is normal for it to sit
+ * outside the pool range; what breaks a node is a gateway outside the SUBNET,
+ * because then there is no on-link route to it and the default route cannot be
+ * installed.
+ */
+export function gatewayError(gw: string, start: string, prefix: string): string {
+  if (!gw.trim()) {
+    return '';
+  }
+  const addr = parseIPv4(gw);
+
+  if (addr === null) {
+    return 'Must be an IPv4 address, for example 192.168.15.1';
+  }
+  const st = parseIPv4(start);
+  const bits = parseBits(prefix);
+
+  if (st === null || bits === null) {
+    return '';
+  }
+  if (!contains({ addr: st, bits }, addr)) {
+    return `Is outside the /${ bits } subnet the machines get. The gateway may sit outside the pool, but it must be inside the subnet or the node has no route to it. Set the subnet prefix to the real network, often 24.`;
+  }
+
+  return '';
+}
+
 function isValidV6(entry: string): boolean {
   if (!entry.includes(':') || !/^[0-9a-fA-F:]+$/.test(entry)) {
     return false;
@@ -190,11 +255,13 @@ export function nameserversError(ns: string): string {
 /**
  * Mirrors the static-mode presence checks in Driver.validateAddressing, in the
  * same order, so the form reports the same first problem the driver would.
- * Format is not re-checked here — ipBaseError and gatewayError cover that.
+ * Format is not re-checked here — the per-field validators cover that.
  */
 export function requiredFieldsError(
   mode: string,
-  ipBase: string,
+  ipStart: string,
+  ipEnd: string,
+  ipPrefix: string,
   gateway: string,
   vmidRange: string,
   cloudInit: boolean,
@@ -202,8 +269,16 @@ export function requiredFieldsError(
   if (mode !== 'static') {
     return '';
   }
-  if (!ipBase.trim()) {
-    return 'A base address is required when addressing is static.';
+  // Same order as validateAddressing in the driver, so the form names the same
+  // first missing field the driver would.
+  if (!ipStart.trim()) {
+    return 'A start address is required when addressing is static.';
+  }
+  if (!ipEnd.trim()) {
+    return 'An end address is required when addressing is static.';
+  }
+  if (!ipPrefix.trim()) {
+    return 'A subnet prefix is required when addressing is static.';
   }
   if (!gateway.trim()) {
     return 'A gateway is required when addressing is static.';
@@ -234,60 +309,18 @@ export function dnsCloudInitError(nameservers: string, searchdomain: string, clo
   return 'Nameservers and search domain need cloud-init: PVE applies them as cloud-init options, so without it they would be silently dropped.';
 }
 
-export function spanError(base: string, vmidRange: string): string {
-  if (!base.trim() || !vmidRange.trim()) {
-    return '';
-  }
-  if (ipBaseError(base) !== '') {
-    return '';
-  }
-  const match = /^\s*(\d+)\s*-\s*(\d+)\s*$/.exec(vmidRange);
-
-  if (!match) {
-    return '';
-  }
-  const lo = Number(match[1]);
-  const hi = Number(match[2]);
-
-  if (hi < lo) {
-    return '';
-  }
-  const p = parsePrefix(base);
-
-  if (!p) {
-    return '';
-  }
-  // A VMID range wider than the subnet is NOT an error. VMIDs are handed out
-  // lowest-free-first, so machines cluster at the bottom of the range and the
-  // subnet only has to hold the machines that exist at once. Requiring full
-  // coverage demanded a /25 to run three nodes with a 100-wide range.
-  //
-  // Only the base itself is checked here; per-machine capacity is enforced by
-  // the driver, which reports it as pool exhaustion with a machine count.
-  if (p.addr === networkOf(p)) {
-    return 'Is the network address of its subnet and cannot be assigned to a machine. Use the next address.';
-  }
-  if (p.addr === broadcastOf(p)) {
-    return 'Is the broadcast address of its subnet and cannot be assigned to a machine.';
-  }
-
-  return '';
-}
-
 /**
- * How many machines the subnet can address starting at the base. This is what
- * caps the pool, so the form surfaces it as information rather than an error.
- * Returns 0 when the base cannot be parsed.
+ * How many machines the pool can address. This caps the machine pool, not the
+ * VMID range: VMIDs are handed out lowest-free-first, so machines fill the pool
+ * from its start upward. Returns 0 when the pool is not yet valid.
  */
-export function poolCapacity(base: string): number {
-  if (!base.trim() || ipBaseError(base) !== '') {
-    return 0;
-  }
-  const p = parsePrefix(base);
+export function poolCapacity(start: string, end: string): number {
+  const st = parseIPv4(start);
+  const e = parseIPv4(end);
 
-  if (!p) {
+  if (st === null || e === null || e < st) {
     return 0;
   }
 
-  return Math.max(0, broadcastOf(p) - p.addr);
+  return e - st + 1;
 }
