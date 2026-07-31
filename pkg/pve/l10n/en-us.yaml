@@ -81,7 +81,7 @@ driver:
         vmUser: "debian for Debian, rancher for Leap Micro"
         ipStart: 192.168.15.150
         ipEnd: 192.168.15.159
-        ipPrefix: 24
+        ipPrefix: "24"
         gateway: 192.168.15.1
         nameservers: 10.10.20.1 1.1.1.1
         searchdomain: cluster.lan
