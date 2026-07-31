@@ -1,6 +1,6 @@
 import {
   IP_MODES, prefixError, ipStartError, ipEndError, poolError, gatewayError,
-  nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity,
+  nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity, vmidRangeError,
 } from '../ip-config';
 
 describe('IP_MODES', () => {
@@ -229,5 +229,50 @@ describe('poolCapacity', () => {
   it('returns 0 for an incomplete or inverted pool rather than throwing', () => {
     expect(poolCapacity('', '')).toBe(0);
     expect(poolCapacity('192.168.15.159', '192.168.15.150')).toBe(0);
+  });
+});
+
+describe('vmidRangeError', () => {
+  it('accepts an empty range: no range configured is valid', () => {
+    expect(vmidRangeError('')).toBe('');
+    expect(vmidRangeError('   ')).toBe('');
+  });
+
+  it('accepts a well-formed range', () => {
+    expect(vmidRangeError('200-299')).toBe('');
+  });
+
+  it('tolerates whitespace around the numbers', () => {
+    expect(vmidRangeError(' 200 - 299 ')).toBe('');
+  });
+
+  it('rejects a range written with the wrong separator', () => {
+    expect(vmidRangeError('500=600')).toContain('<min>-<max>');
+  });
+
+  it('rejects a range missing a separator entirely', () => {
+    expect(vmidRangeError('200299')).toContain('<min>-<max>');
+  });
+
+  it('rejects non-numeric bounds', () => {
+    expect(vmidRangeError('abc-299')).toContain('<min>-<max>');
+    expect(vmidRangeError('200-xyz')).toContain('<min>-<max>');
+  });
+
+  it('rejects a minimum below the reserved range', () => {
+    expect(vmidRangeError('50-299')).toContain('lowest usable VMID is 100');
+  });
+
+  it('rejects a maximum above the ceiling', () => {
+    expect(vmidRangeError('200-9999999999')).toContain('highest usable VMID is 999999999');
+  });
+
+  it('rejects a maximum below the minimum', () => {
+    expect(vmidRangeError('299-200')).toContain('maximum (200) is below the minimum (299)');
+  });
+
+  it('accepts the lowest and highest allowed ids', () => {
+    expect(vmidRangeError('100-100')).toBe('');
+    expect(vmidRangeError('100-999999999')).toBe('');
   });
 });

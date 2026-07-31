@@ -14,7 +14,7 @@ import {
 } from '../disk-spec.ts';
 import {
   IP_MODES, prefixError, ipStartError, ipEndError, poolError, gatewayError,
-  nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity,
+  nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity, vmidRangeError,
 } from '../ip-config';
 
 function initOptions() {
@@ -371,6 +371,14 @@ export default {
       return dnsCloudInitError(this.value?.nameservers || '', this.value?.searchdomain || '', !!this.value?.cloudinit);
     },
 
+    // Format only, independent of addressing mode: an explicit VMID range is
+    // usable whether or not addressing is static. Kept out of addressingErrors
+    // and shown inline under the field instead, since it lives in the
+    // Placement section, nowhere near the addressing errors list.
+    vmidRangeErr() {
+      return vmidRangeError(this.value?.vmidRange || '');
+    },
+
     addressingErrors() {
       return [
         this.requiredFieldsErr, this.ipStartErr, this.ipEndErr,
@@ -393,7 +401,7 @@ export default {
         return;
       }
 
-      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid && this.diskRowsValid() && this.addressingValid());
+      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid && this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr);
     },
 
     addDiskRow() {
@@ -436,7 +444,7 @@ export default {
 
     /** The full validity expression, shared by every watcher that re-reports it. */
     emitValidation() {
-      this.$emit('validationChanged', this.diskRowsValid() && this.addressingValid() && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
+      this.$emit('validationChanged', this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
     },
 
     fakeSelectOptions(list, value) {
@@ -729,6 +737,9 @@ export default {
             :placeholder="t('driver.pve.machine.placeholders.vmidRange')"
             :tooltip="t('driver.pve.machine.hints.vmidRange')"
           />
+          <p v-if="vmidRangeErr" class="text-error mt-5">
+            {{ vmidRangeErr }}
+          </p>
         </div>
         <div class="col span-4">
           <LabeledInput

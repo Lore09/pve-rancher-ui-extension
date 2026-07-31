@@ -309,6 +309,49 @@ export function dnsCloudInitError(nameservers: string, searchdomain: string, clo
   return 'Nameservers and search domain need cloud-init: PVE applies them as cloud-init options, so without it they would be silently dropped.';
 }
 
+const MIN_ALLOWED_VMID = 100;
+const MAX_ALLOWED_VMID = 999999999;
+
+/**
+ * Mirrors parseVMIDRange in pkg/driver/vmidrange.go: a "<min>-<max>" range,
+ * e.g. "200-299". Format only — this is used whether or not addressing is
+ * static, so it is a standalone validator rather than folded into the
+ * static-only checks above.
+ */
+export function vmidRangeError(range: string): string {
+  const s = range.trim();
+
+  if (!s) {
+    return '';
+  }
+
+  const dash = s.indexOf('-');
+
+  if (dash === -1) {
+    return `Must be written as <min>-<max>, for example 200-299.`;
+  }
+  const lo = s.slice(0, dash).trim();
+  const hi = s.slice(dash + 1).trim();
+
+  if (!/^\d+$/.test(lo) || !/^\d+$/.test(hi)) {
+    return `Must be written as <min>-<max>, for example 200-299.`;
+  }
+  const min = Number(lo);
+  const max = Number(hi);
+
+  if (min < MIN_ALLOWED_VMID) {
+    return `The lowest usable VMID is ${ MIN_ALLOWED_VMID } (1-99 are reserved by Proxmox).`;
+  }
+  if (max > MAX_ALLOWED_VMID) {
+    return `The highest usable VMID is ${ MAX_ALLOWED_VMID }.`;
+  }
+  if (max < min) {
+    return `The maximum (${ max }) is below the minimum (${ min }).`;
+  }
+
+  return '';
+}
+
 /**
  * How many machines the pool can address. This caps the machine pool, not the
  * VMID range: VMIDs are handed out lowest-free-first, so machines fill the pool
