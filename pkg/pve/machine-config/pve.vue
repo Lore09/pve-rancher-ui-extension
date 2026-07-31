@@ -574,7 +574,7 @@ export default {
       // Steve resource that also carries metadata, links and actions, and
       // rewriting those would be at best pointless and at worst destructive.
       const booleanFields = [
-        'cloudinit', 'onboot', 'skipPermissionCheck', 'keepOnFailure',
+        'cloudinit', 'onboot', 'skipPermissionCheck', 'keepOnFailure', 'linkedClone',
       ];
 
       const stringFields = [
@@ -707,6 +707,26 @@ export default {
           label-key="driver.pve.machine.fields.vmNamePrefix"
           :placeholder="t('driver.pve.machine.placeholders.vmNamePrefix')"
           :tooltip="t('driver.pve.machine.hints.vmNamePrefix')"
+        />
+      </div>
+    </div>
+
+    <div class="row mt-10">
+      <div class="col span-12">
+        <Checkbox
+          v-model:value="value.linkedClone"
+          :mode="mode"
+          :disabled="busy"
+          :label="t('driver.pve.machine.fields.linkedClone')"
+        />
+        <p class="text-muted mt-5">
+          {{ t('driver.pve.machine.hints.linkedClone') }}
+        </p>
+        <Banner
+          v-if="value.linkedClone"
+          color="warning"
+          class="mt-10"
+          :label="t('driver.pve.machine.warnings.linkedClone')"
         />
       </div>
     </div>

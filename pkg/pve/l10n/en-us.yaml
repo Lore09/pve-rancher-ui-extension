@@ -63,6 +63,7 @@ driver:
         # because nothing can log into it. A warning rather than an error — a
         # template that permits root logins is legitimate.
         sshUserRoot: "SSH User is set to root, which neither documented template permits: the Debian cloud image uses debian and Leap Micro uses rancher. Unless your template explicitly allows root logins, the node will provision and then fail to bootstrap."
+        linkedClone: "Linked clone: the template can never be deleted, and its disk can never be modified, while any machine cloned from it still exists — Proxmox enforces this. The template's storage also becomes a dependency for every machine cloned from it: if that storage degrades or saturates, every linked clone degrades with it. Not every storage backend supports linked clones (needs LVM-thin, ZFS, Ceph RBD, or qcow2 on a snapshot-capable filesystem) — on one that doesn't, cloning will fail outright."
       errors:
         cloudInitRequired: "A data disk with a filesystem needs cloud-init: the driver formats and mounts it over SSH with the key cloud-init injects. Enable cloud-init above, or set the filesystem of that disk to Raw."
         # Shown in place of the dropdowns when the PVE API cannot be reached
@@ -104,6 +105,7 @@ driver:
         vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep the VMs of one cluster in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
         vmNamePrefix: Prepended to the name Rancher generates, so a VM is named prefix-machinename. Useful for grouping the VMs of one cluster in the Proxmox list. Letters, digits and inner hyphens only.
         vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the login user of the image: debian for the Debian cloud image, rancher for Leap Micro."
+        linkedClone: "Off by default (full clone): a complete, independent copy of the template disk. Turning this on makes new machines share the template's disk instead of copying it, which is much faster and lighter on storage I/O when several machines provision at once — read the warning below before enabling it."
       fs:
         ext4: ext4
         xfs: xfs
@@ -117,6 +119,7 @@ driver:
       fields:
         node: Target PVE Node
         template: Source Template (VMID)
+        linkedClone: Use linked clone
         cores: CPU Cores
         sockets: CPU Sockets
         memory: Memory (MB)
