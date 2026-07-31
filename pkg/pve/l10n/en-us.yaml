@@ -29,11 +29,13 @@ driver:
         apiTokenSecret: API Token Secret
         apiInsecure: Skip TLS certificate verification
         caCert: CA Certificate (PEM)
+        pool: Resource Pool
       placeholders:
         apiUrl: https://pve.example.com:8006/api2/json
         apiTokenId: rancher@pve!machine
         apiTokenSecret: The secret printed once by `pveum user token add`
         apiTokenSecretEdit: Leave blank to keep the stored secret
+        pool: "rancher-managed — optional"
         caCert: |
           -----BEGIN CERTIFICATE-----
           ...
@@ -43,6 +45,7 @@ driver:
         # the field is blank on edit. Say so, or it reads as data loss.
         apiInsecure: "Applies to the connection the driver makes to Proxmox VE. It does not affect the Rancher UI proxy, which always verifies the certificate, so the machine-pool dropdowns can still fail while provisioning works. When ticked, the CA certificate above is ignored."
         secretWriteOnly: "The API token secret is stored write-only and is never shown again, so this field is blank. Leave it blank to keep the existing secret; type a new one only to replace it. Test Connection needs a secret, so it stays disabled until you enter one — that does not prevent saving."
+        pool: "PVE resource pool that machines created with this credential are placed into. Set it when the token's privileges are granted on a pool (/pool/<name>) rather than on the whole cluster, which is what stops Rancher from being able to touch any other VM in Proxmox VE — see the driver's rancher-setup.md for the ACL recipe. It belongs here rather than on each machine pool because it is a property of this token's permissions. Leave empty if the token is granted on / instead."
       connected: "Connected to Proxmox VE { version }"
       errors:
         notAllowed: "Rancher could not reach the Proxmox VE server — the host `{ hostname }` is not in the node driver allow list"
@@ -78,7 +81,6 @@ driver:
         node: "pve1 — as shown under Datacenter in the PVE UI"
         allowedNodes: "pve1, pve2 — optional"
         template: "9000"
-        pool: "rancher-managed — optional"
         diskMount: "/var/lib/longhorn"
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
@@ -98,7 +100,6 @@ driver:
       hints:
         placement: Where the VM is created and how it is identified in Proxmox VE. Node and Template are the only fields here the driver cannot default.
         allowedNodes: "Comma-separated node names the driver may place VMs on, e.g. pve1, pve2. Empty considers every online node; the driver picks the one with the most free memory. Mutually exclusive with Target PVE Node — set one or the other, not both. No effect on a single-node install."
-        pool: "PVE resource pool new VMs are created into. Pair this with an API token whose destructive privileges are granted only on this pool (rather than on the whole cluster) so Rancher can manage the VMs it creates without being able to touch anything else in Proxmox VE — see the driver's rancher-setup.md for the full ACL recipe. Leave empty to create VMs outside any pool, as before."
         provisionDelay: "Seconds to wait after the VM is up before Rancher starts provisioning it. Defaults to 30: several cloud images accept SSH before cloud-init has finished configuring DNS and the default route, so without a delay Rancher's first bootstrap command can run against a half-ready guest and fail on what is really a transient condition — and a failed bootstrap deletes and recreates the whole machine. Raise it if that still happens; set 0 to start immediately."
         tags: "Comma-separated PVE tags applied to the VM, e.g. rancher, prod. Purely informational to Proxmox VE — lets a VM this driver created be found and filtered in the PVE UI. Lowercase letters, digits, and _ + . - only."
         # Explains the division of labour the driver implements, so nobody goes
@@ -131,7 +132,6 @@ driver:
         node: Target PVE Node
         allowedNodes: Allowed Nodes
         template: Source Template (VMID)
-        pool: Resource Pool
         linkedClone: Use linked clone
         tags: Tags
         cores: CPU Cores

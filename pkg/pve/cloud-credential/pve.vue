@@ -270,6 +270,25 @@ export default {
       </div>
     </div>
 
+    <!-- Belongs to the credential rather than a machine pool: the pool a VM
+         may be created in is a property of this token's ACL, so every machine
+         pool using this credential necessarily shares it. -->
+    <div class="row mt-10">
+      <div class="col span-6">
+        <LabeledInput
+          :value="value.decodedData.pool"
+          label-key="driver.pve.auth.fields.pool"
+          :placeholder="t('driver.pve.auth.placeholders.pool')"
+          type="text"
+          :mode="mode"
+          @update:value="value.setData('pool', $event);"
+        />
+        <p class="text-muted mt-5">
+          {{ t('driver.pve.auth.hints.pool') }}
+        </p>
+      </div>
+    </div>
+
     <BusyButton
       ref="connect"
       label-key="driver.pve.auth.actions.test"
