@@ -81,6 +81,8 @@ driver:
         node: "pve1 — as shown under Datacenter in the PVE UI"
         allowedNodes: "pve1, pve2 — optional"
         template: "9000"
+        templateTag: "rancher-node"
+        description: "Optional — replaces the default note naming the machine and its template"
         diskMount: "/var/lib/longhorn"
         diskStorage: "local-lvm"
         netBridge: "vmbr0"
@@ -100,7 +102,15 @@ driver:
       hints:
         placement: Where the VM is created and how it is identified in Proxmox VE. Node and Template are the only fields here the driver cannot default.
         allowedNodes: "Comma-separated node names the driver may place VMs on, e.g. pve1, pve2. Empty considers every online node; the driver picks the one with the most free memory. Mutually exclusive with Target PVE Node — set one or the other, not both. No effect on a single-node install."
-        provisionDelay: "Seconds to wait after the VM is up before Rancher starts provisioning it. Defaults to 30: several cloud images accept SSH before cloud-init has finished configuring DNS and the default route, so without a delay Rancher's first bootstrap command can run against a half-ready guest and fail on what is really a transient condition — and a failed bootstrap deletes and recreates the whole machine. Raise it if that still happens; set 0 to start immediately."
+        provisionDelay: "Extra seconds to wait after the VM is up, on top of the cloud-init wait above — with that enabled this is usually redundant and can be lowered or set to 0. Defaults to 30: several cloud images accept SSH before cloud-init has finished configuring DNS and the default route, so without a delay Rancher's first bootstrap command can run against a half-ready guest and fail on what is really a transient condition — and a failed bootstrap deletes and recreates the whole machine. Raise it if that still happens; set 0 to start immediately."
+        templateSource: "By VMID pins this pool to one specific template VM, so rebuilding the image means editing every pool that uses it. By tag names the image instead: exactly one template must carry the tag, and rolling out a rebuild becomes one operation in Proxmox VE — move the tag to the new template."
+        templateTag: "Comma-separated tags the template must carry, e.g. rancher-node. Exactly one template must match, checked here and again by the driver when each machine is created. Because it is resolved per machine, retagging a rebuilt template mid-scale-up gives the new image to the machines created after it."
+        templateTagMatch: "Subset: the template carries at least these tags, ignoring build-metadata tags it also has. Exact: its tags are exactly these. Use Subset unless you deliberately tag templates as complete sets."
+        templateTagsSeen: "Tags on templates found on this node: { tags }"
+        description: "Written to the VM's Notes field in Proxmox VE. Left empty, the driver writes a line naming the machine and the template it was cloned from — without it every machine would inherit the template's own notes, which describe the template rather than the machine."
+        cloneStorage: "Storage the clone's disks are created on. Empty uses the template's own storage, which pins every pool cloning that template to wherever the template lives. Full clones only: a linked clone is an overlay on the template's disk and always stays on its storage."
+        cloneFormat: "Disk format for the clone. Leave it at the storage default unless the target is file-based storage (dir, NFS, CIFS) — block backends such as LVM, ZFS and Ceph RBD reject anything but their own format. The usual reason to set it is qcow2 on NFS, for snapshot support. Full clones only."
+        cloudinitTimeout: "Seconds to wait for cloud-init to finish inside the guest before handing the machine to Rancher. This is the real readiness signal that Provision Delay only approximates: the driver connects over SSH and waits for cloud-init to report done, so the first bootstrap command never runs against a half-configured guest. A guest without cloud-init is detected and skipped. Set 0 to skip the wait."
         tags: "Comma-separated PVE tags applied to the VM, e.g. rancher, prod. Purely informational to Proxmox VE — lets a VM this driver created be found and filtered in the PVE UI. Lowercase letters, digits, and _ + . - only."
         # Explains the division of labour the driver implements, so nobody goes
         # looking for a cloud-init drop-in to do it.
@@ -131,13 +141,20 @@ driver:
       fields:
         node: Target PVE Node
         allowedNodes: Allowed Nodes
+        templateSource: Select Template
         template: Source Template (VMID)
+        templateTag: Template Tag
+        templateTagMatch: Tag Match
+        description: Description
+        cloneStorage: Clone Storage
+        cloneFormat: Clone Disk Format
         linkedClone: Use linked clone
         tags: Tags
         cores: CPU Cores
         sockets: CPU Sockets
         memory: Memory (MB)
         bootDiskSize: Boot Disk Size (GB)
+        cloudinitTimeout: Cloud-init Wait (s)
         provisionDelay: Provision Delay (s)
         dataDisks: Data Disks
         diskSize: Size (GB)
@@ -166,3 +183,13 @@ driver:
       ipModes:
         dhcp: DHCP
         static: Static
+      templateSources:
+        vmid: By VMID
+        tag: By tag
+      templateMatches:
+        subset: Subset (template has at least these tags)
+        exact: Exact (tags are exactly these)
+      cloneStorage:
+        default: Same storage as the template
+      cloneFormats:
+        default: Storage default
