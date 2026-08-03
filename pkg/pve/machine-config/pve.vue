@@ -16,6 +16,12 @@ import {
   IP_MODES, prefixError, ipStartError, ipEndError, poolError, gatewayError,
   nameserversError, requiredFieldsError, dnsCloudInitError, poolCapacity, vmidRangeError,
 } from '../ip-config';
+import {
+  TEMPLATE_MATCHES, discoveredTags, templateTagError,
+} from '../template-select.ts';
+
+/** Disk formats PVE accepts for a full clone; empty takes the storage default. */
+const CLONE_FORMATS = ['raw', 'qcow2', 'vmdk'];
 
 function initOptions() {
   return {
@@ -74,6 +80,14 @@ export default {
     // select reads as "no default" and invites the user to leave it unset.
     if (this.value && !this.value.ipMode) {
       this.value.ipMode = 'dhcp';
+    }
+
+    // A stored pool tells us which selection mode it was saved with: the two
+    // are mutually exclusive in the driver, so a tag present means tag mode.
+    this.templateSource = this.value?.templateTag ? 'tag' : 'vmid';
+
+    if (this.value && !this.value.templateTagMatch) {
+      this.value.templateTagMatch = 'subset';
     }
 
     // Cloud-init is mandatory: it is the only channel carrying the SSH key the
@@ -153,10 +167,13 @@ export default {
     this.nodes.selected = this.value?.node || this.nodes.options[0]?.value;
 
     if (this.nodes.selected) {
-      this.loadNodeSpecific(this.nodes.selected);
+      await this.loadNodeSpecific(this.nodes.selected);
     }
 
-    this.$emit('validationChanged', true);
+    // Not an unconditional `true`: a pool reopened with a tag that no longer
+    // matches any template must come up invalid, and the template list it is
+    // checked against has only just loaded.
+    this.emitValidation();
   },
 
   data() {
@@ -170,11 +187,18 @@ export default {
       credential:      null,
       nodes:           initOptions(),
       templates:       initOptions(),
+      // Raw PVE template objects behind templates.options, kept because tag
+      // matching needs their `tags` field, which the option list drops.
+      templateList:    [],
       storage:         initOptions(),
       bridges:         initOptions(),
       errors:          null,
       diskRows:        [],
       ipModes:         IP_MODES,
+      // How the template is named: by VMID (the dropdown) or by a tag it
+      // carries. Tag selection lets a rebuilt image be rolled out by moving
+      // the tag in PVE, with no edit to this pool.
+      templateSource:  'vmid',
     };
   },
 
@@ -197,6 +221,29 @@ export default {
 
     'value.templateVmid'() {
       this.emitDegradedValidation();
+    },
+
+    'value.templateTag'() {
+      this.emitValidation();
+    },
+
+    'value.templateTagMatch'() {
+      this.emitValidation();
+    },
+
+    templateSource() {
+      this.emitValidation();
+    },
+
+    // Storage and format are full-clone-only: PVE rejects them on a linked
+    // clone, whose disk is an overlay on the template's own. Clear them as
+    // the box is ticked rather than letting a rejected pool be saved.
+    'value.linkedClone'(linked) {
+      if (linked) {
+        this.value.cloneStorage = '';
+        this.value.cloneFormat = '';
+      }
+      this.emitValidation();
     },
 
     // A row with an invalid size, storage or mount path must block saving: the
@@ -306,6 +353,70 @@ export default {
       }));
     },
 
+    /** True while the template is being named by tag rather than by VMID. */
+    byTag() {
+      return this.templateSource === 'tag';
+    },
+
+    templateSourceOptions() {
+      return [
+        { label: this.t('driver.pve.machine.templateSources.vmid'), value: 'vmid' },
+        { label: this.t('driver.pve.machine.templateSources.tag'), value: 'tag' },
+      ];
+    },
+
+    templateMatchOptions() {
+      return TEMPLATE_MATCHES.map((m) => ({
+        label: this.t(`driver.pve.machine.templateMatches.${ m }`),
+        value: m,
+      }));
+    },
+
+    /** Tags seen on the discovered templates, offered as suggestions. */
+    templateTagOptions() {
+      return discoveredTags(this.templateList).map((tag) => ({ label: tag, value: tag }));
+    },
+
+    /**
+     * Mirrors the driver's resolution: exactly one template must carry the
+     * tag, or provisioning fails. Checking it here turns "the machine pool
+     * saved and then every machine failed" into an error on the field.
+     *
+     * In degraded mode there is no template list to check against, so this
+     * falls back to validating the tag's format only.
+     */
+    templateTagErr() {
+      if (!this.byTag) {
+        return '';
+      }
+
+      return templateTagError(
+        this.value?.templateTag || '',
+        this.value?.templateTagMatch || 'subset',
+        this.degraded ? null : this.templateList,
+      );
+    },
+
+    /** Storage and disk format are full-clone-only in PVE. */
+    cloneTargetEnabled() {
+      return !this.value?.linkedClone;
+    },
+
+    cloneFormatOptions() {
+      return [
+        { label: this.t('driver.pve.machine.cloneFormats.default'), value: '' },
+        ...CLONE_FORMATS.map((f) => ({ label: f, value: f })),
+      ];
+    },
+
+    /** Empty means "the template's own storage", which is PVE's own default. */
+    cloneStorageOptions() {
+      return [
+        { label: this.t('driver.pve.machine.cloneStorage.default'), value: '' },
+        ...this.storage.options,
+      ];
+    },
+
     isStaticIP() {
       return this.value?.ipMode === 'static';
     },
@@ -401,7 +512,20 @@ export default {
         return;
       }
 
-      this.$emit('validationChanged', !!this.value?.node && !!this.value?.templateVmid && this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr);
+      this.$emit('validationChanged', !!this.value?.node && this.templateSelectionValid() && this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr);
+    },
+
+    /**
+     * The template must be named exactly one way, and the way it is named must
+     * be usable. Tag mode is checked against the discovered templates; VMID
+     * mode only matters in degraded mode, where the field is typed by hand.
+     */
+    templateSelectionValid() {
+      if (this.byTag) {
+        return this.templateTagErr === '';
+      }
+
+      return !this.degraded || !!this.value?.templateVmid;
     },
 
     addDiskRow() {
@@ -444,7 +568,7 @@ export default {
 
     /** The full validity expression, shared by every watcher that re-reports it. */
     emitValidation() {
-      this.$emit('validationChanged', this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr && (!this.degraded || (!!this.value?.node && !!this.value?.templateVmid)));
+      this.$emit('validationChanged', this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr && this.templateSelectionValid() && (!this.degraded || !!this.value?.node));
     },
 
     fakeSelectOptions(list, value) {
@@ -470,6 +594,10 @@ export default {
       ]);
 
       if (!tmpl.error) {
+        // Tag matching needs the whole PVE object (specifically `tags`), which
+        // the label/value option list below throws away.
+        this.templateList = tmpl.map((o) => o.value);
+
         // String, not Number: every field in an rke-machine-config CRD is typed
         // as a string, and an integer here is rejected outright on save.
         this.templates.options = tmpl.map((o) => ({
@@ -544,13 +672,33 @@ export default {
         this.value.netFirewall = '';
       }
 
+      // The driver rejects a pool that names the template both ways, so only
+      // the fields of the active mode survive. Clearing the other side also
+      // keeps a pool that switched modes from carrying a stale VMID or tag.
+      if (this.byTag) {
+        this.value.templateVmid = '';
+        this.value.templateTagMatch = this.value.templateTagMatch || 'subset';
+      } else {
+        this.value.templateTag = '';
+        this.value.templateTagMatch = '';
+      }
+
+      // Full-clone-only in PVE, same reasoning as the watcher above.
+      if (!this.cloneTargetEnabled) {
+        this.value.cloneStorage = '';
+        this.value.cloneFormat = '';
+      }
+
       // In degraded mode the inputs are bound to `value` directly and the
       // selects hold nothing, so copying them across would wipe what was typed.
       if (!this.degraded) {
         // Syncs the form values into the bound machine-config object.
         this.value.node         = this.nodes.selected || '';
-        this.value.templateVmid = this.templates.selected ?? this.value?.templateVmid ?? '';
         this.value.netBridge    = this.bridges.selected || '';
+
+        if (!this.byTag) {
+          this.value.templateVmid = this.templates.selected ?? this.value?.templateVmid ?? '';
+        }
       }
 
       this.stringifyScalars();
@@ -586,11 +734,13 @@ export default {
       ];
 
       const stringFields = [
-        'node', 'allowedNodes', 'tags', 'vmid', 'vmidRange', 'templateVmid', 'vmNamePrefix',
+        'node', 'allowedNodes', 'tags', 'description', 'vmid', 'vmidRange',
+        'templateVmid', 'templateTag', 'templateTagMatch',
+        'cloneStorage', 'cloneFormat', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout', 'provisionDelay',
         'netIface', 'netDevice', 'netBridge', 'netModel',
-        'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout',
+        'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout', 'cloudinitTimeout',
         'ciuser', 'sshkeys',
         'sshUser', 'sshPort',
         'ipMode', 'ipStart', 'ipEnd', 'ipPrefix', 'gateway', 'nameservers', 'searchdomain',
@@ -694,26 +844,76 @@ export default {
             :tooltip="t('driver.pve.machine.hints.allowedNodes')"
           />
         </div>
-        <div class="col span-4">
+        <div class="col span-2">
           <LabeledSelect
-            v-if="!degraded"
-            v-model:value="templates.selected"
-            label-key="driver.pve.machine.fields.template"
-            :options="templates.options"
-            :disabled="!templates.enabled || busy"
-            :loading="templates.busy"
-            :searchable="true"
+            v-model:value="templateSource"
+            label-key="driver.pve.machine.fields.templateSource"
+            :options="templateSourceOptions"
+            :disabled="busy"
+            :tooltip="t('driver.pve.machine.hints.templateSource')"
           />
+        </div>
+        <div class="col span-2">
+          <template v-if="!byTag">
+            <LabeledSelect
+              v-if="!degraded"
+              v-model:value="templates.selected"
+              label-key="driver.pve.machine.fields.template"
+              :options="templates.options"
+              :disabled="!templates.enabled || busy"
+              :loading="templates.busy"
+              :searchable="true"
+            />
+            <LabeledInput
+              v-else
+              v-model:value.number="value.templateVmid"
+              type="number"
+              :mode="mode"
+              :disabled="busy"
+              label-key="driver.pve.machine.fields.template"
+              :placeholder="t('driver.pve.machine.placeholders.template')"
+              required
+            />
+          </template>
           <LabeledInput
             v-else
-            v-model:value.number="value.templateVmid"
-            type="number"
+            v-model:value="value.templateTag"
             :mode="mode"
             :disabled="busy"
-            label-key="driver.pve.machine.fields.template"
-            :placeholder="t('driver.pve.machine.placeholders.template')"
+            label-key="driver.pve.machine.fields.templateTag"
+            :placeholder="t('driver.pve.machine.placeholders.templateTag')"
+            :tooltip="t('driver.pve.machine.hints.templateTag')"
             required
           />
+        </div>
+      </div>
+
+      <div
+        v-if="byTag"
+        class="row mt-10"
+      >
+        <div class="col span-4">
+          <LabeledSelect
+            v-model:value="value.templateTagMatch"
+            label-key="driver.pve.machine.fields.templateTagMatch"
+            :options="templateMatchOptions"
+            :disabled="busy"
+            :tooltip="t('driver.pve.machine.hints.templateTagMatch')"
+          />
+        </div>
+        <div class="col span-8">
+          <p
+            v-if="templateTagErr"
+            class="text-error"
+          >
+            {{ templateTagErr }}
+          </p>
+          <p
+            v-else-if="templateTagOptions.length"
+            class="text-muted"
+          >
+            {{ t('driver.pve.machine.hints.templateTagsSeen', { tags: templateTagOptions.map((o) => o.label).join(', ') }) }}
+          </p>
         </div>
       </div>
 
@@ -749,6 +949,52 @@ export default {
             label-key="driver.pve.machine.fields.tags"
             :placeholder="t('driver.pve.machine.placeholders.tags')"
             :tooltip="t('driver.pve.machine.hints.tags')"
+          />
+        </div>
+      </div>
+
+      <div class="row mt-10">
+        <div class="col span-12">
+          <LabeledInput
+            v-model:value="value.description"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.description"
+            :placeholder="t('driver.pve.machine.placeholders.description')"
+            :tooltip="t('driver.pve.machine.hints.description')"
+          />
+        </div>
+      </div>
+
+      <div class="row mt-10">
+        <div class="col span-4">
+          <LabeledSelect
+            v-if="!degraded"
+            v-model:value="value.cloneStorage"
+            label-key="driver.pve.machine.fields.cloneStorage"
+            :options="cloneStorageOptions"
+            :disabled="!cloneTargetEnabled || !storage.enabled || busy"
+            :loading="storage.busy"
+            :searchable="true"
+            :tooltip="t('driver.pve.machine.hints.cloneStorage')"
+          />
+          <LabeledInput
+            v-else
+            v-model:value="value.cloneStorage"
+            :mode="mode"
+            :disabled="!cloneTargetEnabled || busy"
+            label-key="driver.pve.machine.fields.cloneStorage"
+            :placeholder="t('driver.pve.machine.placeholders.diskStorage')"
+            :tooltip="t('driver.pve.machine.hints.cloneStorage')"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledSelect
+            v-model:value="value.cloneFormat"
+            label-key="driver.pve.machine.fields.cloneFormat"
+            :options="cloneFormatOptions"
+            :disabled="!cloneTargetEnabled || busy"
+            :tooltip="t('driver.pve.machine.hints.cloneFormat')"
           />
         </div>
       </div>
@@ -817,6 +1063,16 @@ export default {
             :mode="mode"
             :disabled="busy"
             label-key="driver.pve.machine.fields.bootDiskSize"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.cloudinitTimeout"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.cloudinitTimeout"
+            :tooltip="t('driver.pve.machine.hints.cloudinitTimeout')"
           />
         </div>
         <div class="col span-4">
