@@ -29,6 +29,17 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Tag to re-release, e.g. v0.1.4. Must already exist.
+        required: true
+        type: string
+      prerelease:
+        description: Publish as a prerelease and target dev instead of master.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -130,6 +141,12 @@ jobs:
           echo "release_tag=pve-${PKG_VERSION}" >> "$GITHUB_OUTPUT"
           echo "git_tag=${GIT_TAG}" >> "$GITHUB_OUTPUT"
 
+      # `-f` forces the chart rebuild. After a dev prerelease of the same
+      # version the tag's tree already contains charts/<pkg>/<version>, and
+      # without -f the script skips the build, never sets BUILT, and then fails
+      # with "did not match any package name". The rebuild is also what bakes in
+      # the right branch for this release.
+      #
       # `-n` skips the publish script's "check existing charts for updates" loop.
       # We always check out a tag, so `assets/` is never present in the runner and
       # that loop can only iterate over an unexpanded `*/*.tgz` glob — producing a
@@ -138,7 +155,7 @@ jobs:
       # when the release tag matches no package, so skipping the loop is what makes
       # a tag/version mismatch actually fail the job.
       - name: Build extension charts
-        run: yarn publish-pkgs -n -s ${{ github.repository }} -b ${{ env.TARGET }} -t ${{ steps.tag.outputs.release_tag }}
+        run: yarn publish-pkgs -n -f -s ${{ github.repository }} -b ${{ env.TARGET }} -t ${{ steps.tag.outputs.release_tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
