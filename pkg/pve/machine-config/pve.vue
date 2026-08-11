@@ -96,6 +96,13 @@ export default {
       this.value.templateTagMatch = 'subset';
     }
 
+    // Seeded so the checkbox renders ticked on a new pool rather than relying
+    // on the getter's fallback, which would leave the stored config empty and
+    // therefore at the mercy of whatever the template set.
+    if (this.value && !this.value.backup) {
+      this.value.backup = 'true';
+    }
+
     // Cloud-init is mandatory: it is the only channel carrying the SSH key the
     // driver and Rancher's system-agent both need, plus ipconfig0 and DNS. The
     // driver forces it on regardless, so keep the stored config honest instead
@@ -352,6 +359,22 @@ export default {
       return (this.value?.sshUser || '').trim() === 'root'
         ? this.t('driver.pve.machine.warnings.sshUserRoot')
         : '';
+    },
+
+    /**
+     * The driver's `backup` is tri-state (empty keeps the template's setting),
+     * because an unset boolean would be indistinguishable from an explicit
+     * "exclude" and would drop every pre-existing pool out of its backup job.
+     * The form only offers the two deliberate states, defaulting to included —
+     * which is also PVE's own default for a disk.
+     */
+    backupEnabled: {
+      get() {
+        return this.value?.backup !== 'false';
+      },
+      set(on) {
+        this.value.backup = on ? 'true' : 'false';
+      },
     },
 
     /** Cross-row problems the per-row validator cannot see. */
@@ -719,6 +742,11 @@ export default {
       // ship with it off.
       this.value.cloudinit = true;
 
+      // Same as `fetch`, for a config this component never rendered.
+      if (!this.value.backup) {
+        this.value.backup = 'true';
+      }
+
       // The driver rejects static fields left over from a mode switch, so clear
       // them rather than shipping a pool it will refuse.
       if (this.value.ipMode !== 'static') {
@@ -807,7 +835,7 @@ export default {
         'templateVmid', 'templateTag', 'templateTagMatch',
         'cloneStorage', 'cloneFormat', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
-        'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout', 'provisionDelay',
+        'bootDiskSize', 'bootDiskDevice', 'backup', 'diskSetupTimeout', 'provisionDelay',
         'netIface', 'netDevice', 'netBridge', 'netModel',
         'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout', 'cloudinitTimeout',
         'ciuser', 'sshkeys', 'cicustom',
@@ -883,7 +911,7 @@ export default {
       </p>
 
       <div class="row">
-        <div class="col span-4">
+        <div class="col span-6">
           <LabeledSelect
             v-if="!degraded"
             v-model:value="nodes.selected"
@@ -903,7 +931,7 @@ export default {
             required
           />
         </div>
-        <div class="col span-4">
+        <div class="col span-6">
           <LabeledInput
             v-model:value="value.allowedNodes"
             :mode="mode"
@@ -913,7 +941,19 @@ export default {
             :tooltip="t('driver.pve.machine.hints.allowedNodes')"
           />
         </div>
-        <div class="col span-2">
+      </div>
+    </div>
+
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.sections.template') }}
+      </div>
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.template') }}
+      </p>
+
+      <div class="row">
+        <div class="col span-4">
           <LabeledSelect
             v-model:value="templateSource"
             label-key="driver.pve.machine.fields.templateSource"
@@ -922,7 +962,7 @@ export default {
             :tooltip="t('driver.pve.machine.hints.templateSource')"
           />
         </div>
-        <div class="col span-2">
+        <div class="col span-8">
           <template v-if="!byTag">
             <LabeledSelect
               v-if="!degraded"
@@ -987,6 +1027,35 @@ export default {
       </div>
 
       <div class="row mt-10">
+        <div class="col span-12">
+          <Checkbox
+            v-model:value="value.linkedClone"
+            :mode="mode"
+            :disabled="busy"
+            :label="t('driver.pve.machine.fields.linkedClone')"
+          />
+          <p class="text-muted mt-5">
+            {{ t('driver.pve.machine.hints.linkedClone') }}
+          </p>
+          <Banner
+            v-if="value.linkedClone"
+            color="warning"
+            class="mt-10"
+            :label="t('driver.pve.machine.warnings.linkedClone')"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.sections.identity') }}
+      </div>
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.identity') }}
+      </p>
+
+      <div class="row">
         <div class="col span-4">
           <LabeledInput
             v-model:value="value.vmidRange"
@@ -1035,7 +1104,59 @@ export default {
         </div>
       </div>
 
+    </div>
+
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.sections.resources') }}
+      </div>
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.resources') }}
+      </p>
+
+      <div class="row">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.cores"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.cores"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.sockets"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.sockets"
+          />
+        </div>
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.memory"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.memory"
+          />
+        </div>
+      </div>
+
+      <!-- Boot disk and where it lands, on one row: all three describe the
+           VM's own disk. Storage and format are full-clone-only in PVE, hence
+           the shared disable. -->
       <div class="row mt-10">
+        <div class="col span-4">
+          <LabeledInput
+            v-model:value.number="value.bootDiskSize"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.bootDiskSize"
+          />
+        </div>
         <div class="col span-4">
           <LabeledSelect
             v-if="!degraded"
@@ -1071,95 +1192,21 @@ export default {
       <div class="row mt-10">
         <div class="col span-12">
           <Checkbox
-            v-model:value="value.linkedClone"
+            v-model:value="backupEnabled"
             :mode="mode"
             :disabled="busy"
-            :label="t('driver.pve.machine.fields.linkedClone')"
+            :label="t('driver.pve.machine.fields.backup')"
           />
           <p class="text-muted mt-5">
-            {{ t('driver.pve.machine.hints.linkedClone') }}
+            {{ t('driver.pve.machine.hints.backup') }}
           </p>
-          <Banner
-            v-if="value.linkedClone"
-            color="warning"
-            class="mt-10"
-            :label="t('driver.pve.machine.warnings.linkedClone')"
-          />
         </div>
       </div>
     </div>
 
     <div class="mt-20">
       <div class="title">
-        {{ t('driver.pve.machine.sections.sizing') }}
-      </div>
-
-      <div class="row">
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value="value.cores"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.cores"
-          />
-        </div>
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value="value.sockets"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.sockets"
-          />
-        </div>
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value="value.memory"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.memory"
-          />
-        </div>
-      </div>
-
-      <div class="row mt-10">
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value="value.bootDiskSize"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.bootDiskSize"
-          />
-        </div>
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value.number="value.cloudinitTimeout"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.cloudinitTimeout"
-            :tooltip="t('driver.pve.machine.hints.cloudinitTimeout')"
-          />
-        </div>
-        <div class="col span-4">
-          <LabeledInput
-            v-model:value.number="value.provisionDelay"
-            type="number"
-            :mode="mode"
-            :disabled="busy"
-            label-key="driver.pve.machine.fields.provisionDelay"
-            :tooltip="t('driver.pve.machine.hints.provisionDelay')"
-          />
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-20">
-      <div class="title">
-        {{ t('driver.pve.machine.fields.dataDisks') }}
+        {{ t('driver.pve.machine.sections.dataDisks') }}
       </div>
       <p class="text-muted mb-10">
         {{ t('driver.pve.machine.hints.dataDisks') }}
@@ -1261,7 +1308,7 @@ export default {
 
     <div class="mt-20">
       <div class="title">
-        {{ t('driver.pve.machine.fields.networking') }}
+        {{ t('driver.pve.machine.sections.networking') }}
       </div>
       <p class="text-muted mb-10">
         {{ t('driver.pve.machine.hints.networking') }}
@@ -1326,7 +1373,17 @@ export default {
         </div>
       </div>
 
-      <div class="row mt-10">
+    </div>
+
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.sections.addressing') }}
+      </div>
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.addressing') }}
+      </p>
+
+      <div class="row">
         <div class="col span-6">
           <LabeledSelect
             v-model:value="value.ipMode"
@@ -1425,7 +1482,7 @@ export default {
 
     <div class="mt-20">
       <div class="title">
-        {{ t('driver.pve.machine.fields.cloudInit') }}
+        {{ t('driver.pve.machine.sections.cloudInit') }}
       </div>
       <p class="text-muted mb-10">
         {{ t('driver.pve.machine.hints.cloudInit') }}
@@ -1464,6 +1521,31 @@ export default {
         :label="sshUserWarning"
       />
 
+      <!-- Both are waits on cloud-init finishing, so they belong with it rather
+           than with CPU and memory, where they used to sit. -->
+      <div class="row mt-10">
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value.number="value.cloudinitTimeout"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.cloudinitTimeout"
+            :tooltip="t('driver.pve.machine.hints.cloudinitTimeout')"
+          />
+        </div>
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value.number="value.provisionDelay"
+            type="number"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.provisionDelay"
+            :tooltip="t('driver.pve.machine.hints.provisionDelay')"
+          />
+        </div>
+      </div>
+
       <!-- The snippet has to exist on the PVE side already; the driver only
            references it. Kept next to the other cloud-init fields because it
            replaces or extends exactly what they produce. -->
@@ -1489,7 +1571,7 @@ export default {
 
     <div class="mt-20">
       <div class="title">
-        {{ t('driver.pve.machine.fields.extraConfig') }}
+        {{ t('driver.pve.machine.sections.extraConfig') }}
       </div>
       <p class="text-muted mb-10">
         {{ t('driver.pve.machine.hints.extraConfig') }}
