@@ -1,0 +1,19 @@
+{
+  "name": "pve",
+  "description": "Proxmox VE node driver UI",
+  "version": "0.8.1",
+  "private": false,
+  "rancher": true,
+  "engines": {
+    "node": ">=12"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "~5.0.0",
+    "@vue/cli-service": "~5.0.0",
+    "@vue/cli-plugin-typescript": "~5.0.0"
+  },
+  "files": [
+    "**/*"
+  ],
+  "main": "pve-0.8.1.umd.min.js"
+}
