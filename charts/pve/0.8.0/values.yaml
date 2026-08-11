@@ -4,9 +4,9 @@ plugin:
   enabled: true
   versionOverride: ""
   endpoint: >-
-    https://raw.githubusercontent.com/Lore09/pve-rancher-ui-extension/dev/extensions/pve/0.8.0
+    https://raw.githubusercontent.com/Lore09/pve-rancher-ui-extension/master/extensions/pve/0.8.0
   compressedEndpoint: >-
-    https://raw.githubusercontent.com/Lore09/pve-rancher-ui-extension/dev/extensions/pve/0.8.0.tgz
+    https://raw.githubusercontent.com/Lore09/pve-rancher-ui-extension/master/extensions/pve/0.8.0.tgz
   noCache: false
   noAuth: false
   metadata:
