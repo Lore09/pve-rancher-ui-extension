@@ -1,46 +1,96 @@
 name: CI
 
-# The Release workflow commits generated chart artifacts back to master. Those
-# commits carry [skip ci], but path filters are the durable guard — they also
-# cover anyone hand-editing published assets.
-# Duplicated rather than shared via a YAML anchor: the Actions workflow parser
-# does not officially support anchors/aliases.
+# Pull requests only. Merges cannot happen without a green pull request, so
+# re-running the same commits afterwards proves nothing.
+#
+# Same checks on both branches: unlike the driver repo there is nothing worth
+# putting in a heavier master-only tier here.
+#
+# NOTE: there is no `paths-ignore` here. GitHub reports a skipped workflow's
+# checks as *missing* rather than passing, so filtering out chart-only pull
+# requests would leave them permanently unmergeable against the required checks
+# configured on master. The `changes` job below does the filtering instead.
 on:
   pull_request:
-    paths-ignore:
-      - 'assets/**'
-      - 'charts/**'
-      - 'extensions/**'
-      - 'index.yaml'
-  push:
-    branches: [master]
-    paths-ignore:
-      - 'assets/**'
-      - 'charts/**'
-      - 'extensions/**'
-      - 'index.yaml'
+    branches: [master, dev]
 
 defaults:
   run:
     shell: bash
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  # Decides whether the source pipeline has anything to do. The jobs below
+  # always run so their required status checks always report; they just skip
+  # their steps when only published chart artifacts changed.
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "src=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          git fetch -q origin "${{ github.base_ref }}"
+          BASE="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
+          CHANGED="$(git diff --name-only "$BASE" HEAD)"
+          echo "$CHANGED"
+
+          # Everything except the published chart artifacts.
+          if printf '%s\n' "$CHANGED" | grep -Ev '^(assets|charts|extensions)/|^index\.yaml$' | grep -q .; then
+            echo "src=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "src=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Unit tests
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+        if: ${{ needs.changes.outputs.src == 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ needs.changes.outputs.src == 'true' }}
         with:
           node-version: '22'
-
-      # yarn.lock is `lockfile v1` (Yarn 1 classic) - `--immutable` is a Berry
-      # flag and was silently ignored here, so the lockfile went unenforced.
+      # yarn.lock is lockfile v1 (Yarn 1 classic); --frozen-lockfile is the
+      # Yarn 1 equivalent of --immutable.
       - name: Install dependencies
+        if: ${{ needs.changes.outputs.src == 'true' }}
         run: yarn install --frozen-lockfile --network-timeout 600000
+      - name: Run tests
+        if: ${{ needs.changes.outputs.src == 'true' }}
+        run: yarn test:unit
 
+  build:
+    name: Build extension
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ needs.changes.outputs.src == 'true' }}
+      - uses: actions/setup-node@v4
+        if: ${{ needs.changes.outputs.src == 'true' }}
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        if: ${{ needs.changes.outputs.src == 'true' }}
+        run: yarn install --frozen-lockfile --network-timeout 600000
       # `yarn build` runs the full-dashboard build which expects a dashboard
-      # monorepo layout. Extension repos use `yarn build-pkg <name>` which
-      # sets up the .shell symlink and compiles only the package.
+      # monorepo layout. Extension repos use `yarn build-pkg <name>`.
       - name: Build extension package
+        if: ${{ needs.changes.outputs.src == 'true' }}
         run: yarn build-pkg pve

@@ -181,24 +181,36 @@ for the wider context.
 ## Releasing
 
 **`version` in `pkg/pve/package.json` is the single source of truth.** Bumping it
-on `master` is the whole release procedure — there is no tag to create by hand:
+is the whole release procedure — there is no tag to create by hand.
 
-```bash
-vim pkg/pve/package.json          # e.g. "version": "0.1.4"
-git commit -am "Bump version to 0.1.4"
-git push
-```
+Two long-lived branches: **`dev`** for integration (open feature pull requests
+against it) and **`master`** for stable. `master` takes pull requests from `dev`
+only.
 
-`version-release.yml` picks it up from there and:
+The branch decides what kind of release you get. The version in the file is
+always plain `x.y.z`; the `-dev` suffix belongs to the tag.
 
-1. validates the new version is semver, actually changed, has not gone
+| Merge into | Version | Tag | Release | Artifacts published to |
+|---|---|---|---|---|
+| `dev` | `0.1.4` | `v0.1.4-dev` | prerelease, not latest | `dev` |
+| `master` | `0.1.4` | `v0.1.4` | stable, latest | `master` |
+
+`version-release.yml` picks it up and:
+
+1. validates the new version is plain semver, actually changed, has not gone
    backwards, and does not reuse an existing tag,
-2. creates and pushes the `v0.1.4` tag,
+2. creates and pushes the tag,
 3. calls `release.yml`, which builds the extension and packages the Helm chart,
-4. commits `assets/`, `charts/`, `extensions/` and `index.yaml` to `master`,
-   preserving previously published versions,
-5. creates a GitHub Release for `v0.1.4` with auto-generated notes and the
-   packaged chart attached.
+4. commits `assets/`, `charts/`, `extensions/` and `index.yaml` to the branch
+   above, preserving previously published versions,
+5. creates a GitHub Release with auto-generated notes and the packaged chart
+   attached.
+
+After a stable release, `master` is merged back into `dev` so the branches do
+not drift.
+
+To test a dev build in Rancher, add a **second** Extension Repository pointing
+at the `dev` branch.
 
 Because the tag is derived from the file, a release can never claim a version the
 extension does not. Pushing a `v*` tag manually does **not** start a release;
