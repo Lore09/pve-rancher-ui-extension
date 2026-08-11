@@ -188,8 +188,10 @@ jobs:
             exit 1
           fi
 
-          # [skip ci] avoids kicking off the CI workflow for a chart-only commit.
-          git commit -m "chore(release): publish ${{ steps.tag.outputs.release_tag }} chart [skip ci]"
+          # No [skip ci]: CI runs on pull requests only, and the marker would
+          # also suppress the checks on the promotion pull request whose head
+          # is this commit, leaving them stuck at "Expected".
+          git commit -m "chore(release): publish ${{ steps.tag.outputs.release_tag }} chart"
           git push origin "HEAD:$TARGET"
 
           # Hand the packaged chart to the Release step. Assert rather than glob,
