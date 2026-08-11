@@ -1,0 +1,14 @@
+plugin/img/icon.1c4034cc.svg
+plugin/package.json
+plugin/pve-0.8.1.umd.min.352.js
+plugin/pve-0.8.1.umd.min.352.js.map
+plugin/pve-0.8.1.umd.min.37.js
+plugin/pve-0.8.1.umd.min.37.js.map
+plugin/pve-0.8.1.umd.min.413.js
+plugin/pve-0.8.1.umd.min.413.js.map
+plugin/pve-0.8.1.umd.min.cloud-credential.js
+plugin/pve-0.8.1.umd.min.cloud-credential.js.map
+plugin/pve-0.8.1.umd.min.js
+plugin/pve-0.8.1.umd.min.js.map
+plugin/pve-0.8.1.umd.min.machine-config.js
+plugin/pve-0.8.1.umd.min.machine-config.js.map
