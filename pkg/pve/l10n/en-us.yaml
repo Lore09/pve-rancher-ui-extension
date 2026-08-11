@@ -63,7 +63,14 @@ driver:
       loading: Loading resources from the Proxmox VE server...
       sections:
         placement: Placement
-        sizing: Sizing
+        template: Template
+        identity: Identity
+        resources: Resources
+        dataDisks: Data Disks
+        networking: Networking
+        addressing: Addressing
+        cloudInit: Cloud-init
+        extraConfig: Additional PVE Options
       warnings:
         # Surfaces as a node that provisions fine and then never reaches Ready,
         # because nothing can log into it. A warning rather than an error — a
@@ -105,7 +112,9 @@ driver:
         addExtraConfig: Add PVE Option
         removeExtraConfig: Remove
       hints:
-        placement: Where the VM is created and how it is identified in Proxmox VE. Node and Template are the only fields here the driver cannot default.
+        placement: Which Proxmox VE host the machines are created on. Leave both empty to let the driver pick the online node with the most free memory.
+        template: The image every machine in this pool is cloned from. This is the only setting the driver cannot default.
+        identity: How the machines are named and labelled in Proxmox VE. All optional - the driver derives sensible values from the machine name.
         allowedNodes: "Comma-separated node names the driver may place VMs on, e.g. pve1, pve2. Empty considers every online node; the driver picks the one with the most free memory. Mutually exclusive with Target PVE Node — set one or the other, not both. No effect on a single-node install."
         provisionDelay: "Extra seconds to wait after the VM is up, on top of the cloud-init wait above — with that enabled this is usually redundant and can be lowered or set to 0. Defaults to 30: several cloud images accept SSH before cloud-init has finished configuring DNS and the default route, so without a delay Rancher's first bootstrap command can run against a half-ready guest and fail on what is really a transient condition — and a failed bootstrap deletes and recreates the whole machine. Raise it if that still happens; set 0 to start immediately."
         templateSource: "By VMID pins this pool to one specific template VM, so rebuilding the image means editing every pool that uses it. By tag names the image instead: exactly one template must carry the tag, and rolling out a rebuild becomes one operation in Proxmox VE — move the tag to the new template."
@@ -132,6 +141,8 @@ driver:
         vmidRange: "Allocate VMIDs from this inclusive range, e.g. 200-299, to keep the VMs of one cluster in a predictable band. Leave empty to let Proxmox pick the next free id cluster-wide."
         vmNamePrefix: Prepended to the name Rancher generates, so a VM is named prefix-machinename. Useful for grouping the VMs of one cluster in the Proxmox list. Letters, digits and inner hyphens only.
         vmUser: "The account cloud-init creates and that Rancher and the driver then log in as — one setting, because cloud-init installs the SSH keys for exactly this user. It must match the login user of the image: debian for the Debian cloud image, rancher for Leap Micro."
+        resources: CPU, memory and the VM's own disk. Data disks are configured separately below.
+        backup: "Whether a PVE backup job picks up this machine's boot disk. On by default, matching Proxmox VE. Worth turning off for worker pools: a node's boot disk holds no unique state, and backing up every node multiplies backup storage by the pool size for something a rebuild reproduces. Data disks have their own setting on each disk below."
         cicustom: "Points cloud-init at a snippet file you have already uploaded to Proxmox VE, so one template can serve pools that need different guest configuration — a package, a private registry's CA, a sysctl — without being rebuilt. Format is PVE's own: comma-separated type=volume pairs on a storage with the snippets content type enabled, e.g. vendor=local:snippets/rancher.yaml. Use vendor=, which merges with what PVE generates; user= is rejected because it would replace the user-data carrying the per-machine SSH key, leaving a node nobody can log into."
         extraConfig: "Writes a Proxmox VE VM config key this form has no field for, applied after the clone and before the VM starts — cpu=host, numa=1, balloon=0, hostpci0=0000:01:00,pcie=1, startup=order=1,up=30. The value is passed through untouched, so anything from `man qm.conf` works; a key Proxmox rejects fails provisioning and rolls the machine back. Keys this driver sets itself are refused here, naming the field that owns them."
         linkedClone: "Off by default (full clone): a complete, independent copy of the template disk. Turning this on makes new machines share the template's disk instead of copying it, which is much faster and lighter on storage I/O when several machines provision at once — read the warning below before enabling it."
@@ -163,21 +174,18 @@ driver:
         bootDiskSize: Boot Disk Size (GB)
         cloudinitTimeout: Cloud-init Wait (s)
         provisionDelay: Provision Delay (s)
-        dataDisks: Data Disks
         diskSize: Size (GB)
         diskStorage: Storage
         diskFs: Filesystem
         diskMount: Mount Path
         diskBackup: Include in PVE backups
-        networking: Networking
         netBridge: Network Bridge
         netModel: NIC Model
         netVlanTag: VLAN Tag
         netMtu: MTU
         netFirewall: PVE Firewall
-        cloudInit: Cloud-init
+        backup: Include the boot disk in PVE backups
         cicustom: Cloud-init Snippets
-        extraConfig: Additional PVE Options
         extraConfigKey: Key
         extraConfigValue: Value
         vmUser: VM User
