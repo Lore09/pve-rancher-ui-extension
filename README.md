@@ -209,6 +209,12 @@ always plain `x.y.z`; the `-dev` suffix belongs to the tag.
 After a stable release, `master` is merged back into `dev` so the branches do
 not drift.
 
+> Never put the CI skip marker (the `[skip` `ci]` form) in a commit message or
+> a pull request title. It suppresses `pull_request` workflows too, so required
+> checks never report and the pull request sticks at "Expected" with no error.
+> Squash merges use the pull request title as the commit subject, so the title
+> matters as much as the message.
+
 To test a dev build in Rancher, add a **second** Extension Repository pointing
 at the `dev` branch.
 
