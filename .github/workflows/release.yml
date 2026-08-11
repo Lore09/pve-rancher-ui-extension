@@ -22,6 +22,13 @@ on:
         description: Git tag to release, e.g. v0.1.4. Must already exist.
         required: true
         type: string
+      prerelease:
+        description: >-
+          Publish as a GitHub prerelease and commit the chart artifacts to dev
+          instead of master.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -37,6 +44,10 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # Prereleases publish onto dev so it can be added as a second Extension
+      # Repository; stable releases publish onto master.
+      TARGET: ${{ inputs.prerelease && 'dev' || 'master' }}
     steps:
       # Check out the tag, not the caller's branch: the tag points at the version
       # bump commit, so this is the tree whose pkg/pve/package.json holds the
@@ -49,6 +60,19 @@ jobs:
         with:
           ref: ${{ inputs.version }}
           fetch-depth: 0
+          # Sets an SSH remote and persists the key for the pushes below, which
+          # need the deploy-key bypass on the protected branches.
+          ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
+
+      # Fail now rather than after the chart is published.
+      - name: Check release credentials
+        env:
+          RELEASE_SSH_KEY: ${{ secrets.RELEASE_SSH_KEY }}
+        run: |
+          if [ -z "${RELEASE_SSH_KEY:-}" ]; then
+            echo "::error::RELEASE_SSH_KEY is not set; the publish commit would be rejected by the branch ruleset."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -96,8 +120,10 @@ jobs:
             exit 1
           fi
 
-          if [ "${GIT_TAG#v}" != "$PKG_VERSION" ]; then
-            echo "::error::git tag '$GIT_TAG' does not match pkg/pve/package.json version '$PKG_VERSION'. Bump the package.json version to ${GIT_TAG#v} before re-tagging, or tag with 'v${PKG_VERSION}'."
+          # The tag may carry a -dev suffix that package.json never does.
+          CORE="${GIT_TAG#v}"; CORE="${CORE%-dev}"
+          if [ "$CORE" != "$PKG_VERSION" ]; then
+            echo "::error::git tag '$GIT_TAG' does not match pkg/pve/package.json version '$PKG_VERSION'."
             exit 1
           fi
 
@@ -112,14 +138,14 @@ jobs:
       # when the release tag matches no package, so skipping the loop is what makes
       # a tag/version mismatch actually fail the job.
       - name: Build extension charts
-        run: yarn publish-pkgs -n -s ${{ github.repository }} -b master -t ${{ steps.tag.outputs.release_tag }}
+        run: yarn publish-pkgs -n -s ${{ github.repository }} -b ${{ env.TARGET }} -t ${{ steps.tag.outputs.release_tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # The publish script only writes artifacts into the working tree and mirrors
       # them into tmp/ — it never pushes. This step is the actual publish: overlay
       # tmp/ onto master so Rancher can consume the repo at that branch.
-      - name: Publish chart artifacts to master
+      - name: Publish chart artifacts
         id: publish
         run: |
           set -euo pipefail
@@ -138,8 +164,8 @@ jobs:
 
           # Explicit refspec: checkout ran against a tag, so the origin/master
           # remote-tracking ref is not guaranteed to exist yet.
-          git fetch origin master:refs/remotes/origin/master
-          git checkout -B master origin/master
+          git fetch origin "$TARGET:refs/remotes/origin/$TARGET"
+          git checkout -B "$TARGET" "origin/$TARGET"
 
           # Overlay rather than replace: previously published versions must survive,
           # since the Helm index on master references all of them.
@@ -164,7 +190,7 @@ jobs:
 
           # [skip ci] avoids kicking off the CI workflow for a chart-only commit.
           git commit -m "chore(release): publish ${{ steps.tag.outputs.release_tag }} chart [skip ci]"
-          git push origin HEAD:master
+          git push origin "HEAD:$TARGET"
 
           # Hand the packaged chart to the Release step. Assert rather than glob,
           # so a rename upstream fails the release instead of quietly attaching
@@ -184,4 +210,54 @@ jobs:
           tag_name: ${{ steps.tag.outputs.git_tag }}
           name: ${{ steps.tag.outputs.git_tag }}
           generate_release_notes: true
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: ${{ !inputs.prerelease }}
           files: ${{ steps.publish.outputs.chart }}
+      # Bring the published artifacts into dev: fast-forward if dev has nothing
+      # of its own, otherwise merge. Warns instead of failing.
+      - name: Sync master into dev
+        if: ${{ !inputs.prerelease }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          if ! git ls-remote --exit-code --heads origin dev >/dev/null 2>&1; then
+            echo "::notice::no dev branch yet; nothing to sync"
+            exit 0
+          fi
+
+          git fetch origin master dev
+
+          BASE="$(git rev-parse origin/master)"
+          DEV="$(git rev-parse origin/dev)"
+
+          if [ "$BASE" = "$DEV" ]; then
+            echo "::notice::dev already matches master"
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor "$DEV" "$BASE"; then
+            if git push origin "$BASE:refs/heads/dev"; then
+              echo "::notice::fast-forwarded dev to master"
+            else
+              echo "::warning::could not fast-forward dev to master"
+            fi
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git checkout -B dev-sync "$DEV"
+          if ! git merge --no-edit -m "chore: merge master into dev (release artifacts)" "$BASE"; then
+            git merge --abort >/dev/null 2>&1 || true
+            echo "::warning::merging master into dev hit conflicts; resolve it manually."
+            exit 0
+          fi
+
+          if git push origin "HEAD:refs/heads/dev"; then
+            echo "::notice::merged master into dev"
+          else
+            echo "::warning::could not push the merge (dev moved while this ran)."
+          fi
