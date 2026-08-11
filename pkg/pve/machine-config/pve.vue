@@ -19,6 +19,11 @@ import {
 import {
   TEMPLATE_MATCHES, discoveredTags, templateTagError,
 } from '../template-select.ts';
+import {
+  cicustomError, emptyRow as emptyExtraRow, parseRow as parseExtraRow,
+  reservedKeys, rowError as extraRowErrorFor, rowsError as extraRowsError,
+  serializeRow as serializeExtraRow,
+} from '../extra-config.ts';
 
 /** Disk formats PVE accepts for a full clone; empty takes the storage default. */
 const CLONE_FORMATS = ['raw', 'qcow2', 'vmdk'];
@@ -74,6 +79,7 @@ export default {
   async fetch() {
     this.errors = [];
     this.diskRows = (this.value?.dataDisk || []).map((entry) => parseRow(entry));
+    this.extraRows = (this.value?.extraConfig || []).map((entry) => parseExtraRow(entry));
 
     // Seed the addressing defaults here rather than only in `test()`, so the
     // dropdown shows DHCP as soon as the form opens instead of blank. A blank
@@ -194,6 +200,7 @@ export default {
       bridges:         initOptions(),
       errors:          null,
       diskRows:        [],
+      extraRows:       [],
       ipModes:         IP_MODES,
       // How the template is named: by VMID (the dropdown) or by a tag it
       // carries. Tag selection lets a rebuilt image be rolled out by moving
@@ -294,6 +301,17 @@ export default {
         this.emitValidation();
       },
     },
+
+    extraRows: {
+      deep: true,
+      handler() {
+        this.emitValidation();
+      },
+    },
+
+    'value.cicustom'() {
+      this.emitValidation();
+    },
   },
 
   computed: {
@@ -339,6 +357,26 @@ export default {
     /** Cross-row problems the per-row validator cannot see. */
     diskRowsCrossError() {
       return rowsError(this.diskRows);
+    },
+
+    /**
+     * Recomputed rather than fixed, because which keys the driver claims depends
+     * on the rest of the form: with no bridge set it never touches the NIC, so
+     * defining net0 here is legitimate.
+     */
+    extraReserved() {
+      return reservedKeys({
+        ...this.value,
+        netBridge: this.degraded ? this.value?.netBridge : this.bridges.selected,
+      });
+    },
+
+    extraRowsCrossError() {
+      return extraRowsError(this.extraRows);
+    },
+
+    cicustomErr() {
+      return cicustomError(this.value?.cicustom, this.isStaticIP);
     },
 
     /**
@@ -512,7 +550,7 @@ export default {
         return;
       }
 
-      this.$emit('validationChanged', !!this.value?.node && this.templateSelectionValid() && this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr);
+      this.$emit('validationChanged', !!this.value?.node && this.templateSelectionValid() && this.diskRowsValid() && this.extraRowsValid() && this.addressingValid() && !this.vmidRangeErr);
     },
 
     /**
@@ -557,6 +595,31 @@ export default {
       return this.diskRows.every((row) => rowError(row) === '');
     },
 
+    addExtraRow() {
+      this.extraRows.push(emptyExtraRow());
+    },
+
+    removeExtraRow(idx) {
+      this.extraRows.splice(idx, 1);
+    },
+
+    extraRowError(row) {
+      return extraRowErrorFor(row, this.extraReserved);
+    },
+
+    /**
+     * The driver rejects a bad key or a reserved one in PreCreateCheck, which is
+     * after the clone: the pool saves, the machine is created, and the config
+     * request then fails and rolls it back. Blocking the save is cheaper.
+     */
+    extraRowsValid() {
+      if (this.cicustomErr !== '' || extraRowsError(this.extraRows) !== '') {
+        return false;
+      }
+
+      return this.extraRows.every((row) => this.extraRowError(row) === '');
+    },
+
     /**
      * Addressing problems must block saving too. The driver rejects the same
      * values in PreCreateCheck, which is far too late: the pool saves cleanly
@@ -568,7 +631,7 @@ export default {
 
     /** The full validity expression, shared by every watcher that re-reports it. */
     emitValidation() {
-      this.$emit('validationChanged', this.diskRowsValid() && this.addressingValid() && !this.vmidRangeErr && this.templateSelectionValid() && (!this.degraded || !!this.value?.node));
+      this.$emit('validationChanged', this.diskRowsValid() && this.extraRowsValid() && this.addressingValid() && !this.vmidRangeErr && this.templateSelectionValid() && (!this.degraded || !!this.value?.node));
     },
 
     fakeSelectOptions(list, value) {
@@ -637,6 +700,12 @@ export default {
       // Rows are serialized even in degraded mode: they are typed by hand there
       // too, and unlike the selects they hold real values.
       this.value.dataDisk = this.diskRows.map((row) => serializeRow(row));
+
+      // A row left blank is someone who clicked Add and changed their mind, not
+      // a config error — drop it rather than shipping `=` to the driver.
+      this.value.extraConfig = this.extraRows
+        .filter((row) => (row.key || '').trim())
+        .map((row) => serializeExtraRow(row));
 
       // Default the mode so a pool saved before this field existed keeps its
       // previous DHCP behaviour rather than failing validation. Also seeded in
@@ -717,8 +786,8 @@ export default {
      * checkbox coerced to "true". Fixing it once on the way out is more
      * reliable than getting every individual binding right.
      *
-     * `dataDisk` is in neither list on purpose: it is already an array of
-     * strings, which is what the CRD expects.
+     * `dataDisk` and `extraConfig` are in neither list on purpose: both are
+     * already arrays of strings, which is what the CRD expects.
      *
      * To re-check the real types after a flag change:
      *   kubectl get crd pveconfigs.rke-machine-config.cattle.io -o json \
@@ -741,7 +810,7 @@ export default {
         'bootDiskSize', 'bootDiskDevice', 'diskSetupTimeout', 'provisionDelay',
         'netIface', 'netDevice', 'netBridge', 'netModel',
         'netVlanTag', 'netMtu', 'netFirewall', 'agentTimeout', 'cloudinitTimeout',
-        'ciuser', 'sshkeys',
+        'ciuser', 'sshkeys', 'cicustom',
         'sshUser', 'sshPort',
         'ipMode', 'ipStart', 'ipEnd', 'ipPrefix', 'gateway', 'nameservers', 'searchdomain',
       ];
@@ -1394,6 +1463,95 @@ export default {
         color="warning"
         :label="sshUserWarning"
       />
+
+      <!-- The snippet has to exist on the PVE side already; the driver only
+           references it. Kept next to the other cloud-init fields because it
+           replaces or extends exactly what they produce. -->
+      <div class="row mt-10">
+        <div class="col span-12">
+          <LabeledInput
+            v-model:value="value.cicustom"
+            :mode="mode"
+            :disabled="busy"
+            label-key="driver.pve.machine.fields.cicustom"
+            :placeholder="t('driver.pve.machine.placeholders.cicustom')"
+            :tooltip="t('driver.pve.machine.hints.cicustom')"
+          />
+        </div>
+      </div>
+
+      <Banner
+        v-if="cicustomErr"
+        color="error"
+        :label="cicustomErr"
+      />
+    </div>
+
+    <div class="mt-20">
+      <div class="title">
+        {{ t('driver.pve.machine.fields.extraConfig') }}
+      </div>
+      <p class="text-muted mb-10">
+        {{ t('driver.pve.machine.hints.extraConfig') }}
+      </p>
+
+      <div
+        v-for="(row, idx) in extraRows"
+        :key="idx"
+        class="extra-entry mb-10"
+      >
+        <div class="extra-row row">
+          <div class="col span-4">
+            <LabeledInput
+              v-model:value="row.key"
+              :mode="mode"
+              :disabled="busy"
+              label-key="driver.pve.machine.fields.extraConfigKey"
+              :placeholder="t('driver.pve.machine.placeholders.extraConfigKey')"
+            />
+          </div>
+          <div class="col span-7">
+            <LabeledInput
+              v-model:value="row.value"
+              :mode="mode"
+              :disabled="busy"
+              label-key="driver.pve.machine.fields.extraConfigValue"
+              :placeholder="t('driver.pve.machine.placeholders.extraConfigValue')"
+            />
+          </div>
+          <div class="col span-1 extra-row__remove">
+            <button
+              type="button"
+              class="btn role-link"
+              :disabled="busy"
+              @click="removeExtraRow(idx)"
+            >
+              {{ t('driver.pve.machine.actions.removeExtraConfig') }}
+            </button>
+          </div>
+        </div>
+        <Banner
+          v-if="extraRowError(row)"
+          color="error"
+          class="extra-row__error"
+          :label="extraRowError(row)"
+        />
+      </div>
+
+      <Banner
+        v-if="extraRowsCrossError"
+        color="error"
+        :label="extraRowsCrossError"
+      />
+
+      <button
+        type="button"
+        class="btn role-tertiary"
+        :disabled="busy"
+        @click="addExtraRow"
+      >
+        {{ t('driver.pve.machine.actions.addExtraConfig') }}
+      </button>
     </div>
   </div>
 </template>
@@ -1416,6 +1574,20 @@ export default {
       > i {
         margin-right: 4px;
       }
+    }
+  }
+
+  .extra-row {
+    align-items: flex-start;
+
+    &__remove {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
+    }
+
+    &__error {
+      margin: 4px 0 0 0;
     }
   }
 
