@@ -463,6 +463,18 @@ export default {
       return !this.value?.linkedClone;
     },
 
+    /**
+     * HA needs somewhere to fail over to, so the fields stay hidden on a
+     * single-node install, where PVE rejects the registration outright.
+     *
+     * Gated on the loaded node list rather than on how many nodes the pool
+     * allows: a pool pinned to one node is still a legitimate HA user — the
+     * point is that HA moves the VM elsewhere when that node dies.
+     */
+    haAvailable() {
+      return this.nodes.options.length > 1;
+    },
+
     cloneFormatOptions() {
       return [
         { label: this.t('driver.pve.machine.cloneFormats.default'), value: '' },
@@ -786,6 +798,17 @@ export default {
         this.value.cloneFormat = '';
       }
 
+      // Only once the node list has loaded: in degraded mode nothing was
+      // fetched, and dropping a valid HA setting because an API call failed
+      // would be worse than leaving it alone. The group follows the checkbox
+      // because the driver rejects a group with HA off.
+      if (this.nodes.options.length && !this.haAvailable) {
+        this.value.ha = false;
+      }
+      if (!this.value.ha) {
+        this.value.haGroup = '';
+      }
+
       // In degraded mode the inputs are bound to `value` directly and the
       // selects hold nothing, so copying them across would wipe what was typed.
       if (!this.degraded) {
@@ -828,10 +851,11 @@ export default {
       // rewriting those would be at best pointless and at worst destructive.
       const booleanFields = [
         'cloudinit', 'onboot', 'skipPermissionCheck', 'keepOnFailure', 'linkedClone',
+        'ha',
       ];
 
       const stringFields = [
-        'node', 'allowedNodes', 'tags', 'description', 'vmid', 'vmidRange',
+        'node', 'allowedNodes', 'haGroup', 'tags', 'description', 'vmid', 'vmidRange',
         'templateVmid', 'templateTag', 'templateTagMatch',
         'cloneStorage', 'cloneFormat', 'vmNamePrefix',
         'cores', 'sockets', 'memory',
@@ -939,6 +963,38 @@ export default {
             label-key="driver.pve.machine.fields.allowedNodes"
             :placeholder="t('driver.pve.machine.placeholders.allowedNodes')"
             :tooltip="t('driver.pve.machine.hints.allowedNodes')"
+          />
+        </div>
+      </div>
+
+      <!-- Hidden on a single-node cluster, where HA has nowhere to fail over
+           to. The group input stays mounted but disabled until HA is on, the
+           same way Clone Storage follows the linked-clone checkbox: it reads
+           as part of what the checkbox unlocks rather than appearing from
+           nowhere. -->
+      <div
+        v-if="haAvailable"
+        class="row mt-10"
+      >
+        <div class="col span-6">
+          <Checkbox
+            v-model:value="value.ha"
+            :mode="mode"
+            :disabled="busy"
+            :label="t('driver.pve.machine.fields.ha')"
+          />
+          <p class="text-muted mt-5">
+            {{ t('driver.pve.machine.hints.ha') }}
+          </p>
+        </div>
+        <div class="col span-6">
+          <LabeledInput
+            v-model:value="value.haGroup"
+            :mode="mode"
+            :disabled="!value.ha || busy"
+            label-key="driver.pve.machine.fields.haGroup"
+            :placeholder="t('driver.pve.machine.placeholders.haGroup')"
+            :tooltip="t('driver.pve.machine.hints.haGroup')"
           />
         </div>
       </div>
