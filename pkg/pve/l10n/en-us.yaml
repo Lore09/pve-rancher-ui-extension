@@ -87,6 +87,7 @@ driver:
       placeholders:
         node: "pve1 — as shown under Datacenter in the PVE UI"
         allowedNodes: "pve1, pve2 — optional"
+        haGroup: "prod — optional"
         template: "9000"
         templateTag: "rancher-node"
         description: "Optional — replaces the default note naming the machine and its template"
@@ -116,6 +117,12 @@ driver:
         template: "The image every machine is cloned from. The only setting the driver cannot default."
         identity: "How the machines are named and labelled in Proxmox VE. All optional."
         allowedNodes: "Comma-separated nodes the driver may use, e.g. pve1, pve2. Empty considers every online node. Do not combine with Target PVE Node."
+        # Names the two things HA buys, in that order: restart-elsewhere is why
+        # most people turn it on, rebalancing is what the requester asked for
+        # and is invisible without HA. The privilege is here because the pool
+        # fails its pre-create check without it, which is otherwise a puzzle.
+        ha: "Proxmox restarts each machine on another node if its host fails, and may rebalance the cluster on its own (CRS). Needs Sys.Console on / for the API token."
+        haGroup: "Limits which nodes these machines may run on. Empty lets HA use any node in the cluster."
         provisionDelay: "Extra wait after the VM is up, before Rancher starts provisioning. Usually redundant once the cloud-init wait is on; 0 starts immediately."
         templateSource: "By VMID pins this pool to one template. By tag names the image instead, so rolling out a rebuild is one retag in Proxmox VE."
         templateTag: "Tags the template must carry, e.g. rancher-node. Exactly one template must match, resolved per machine at create time."
@@ -159,6 +166,8 @@ driver:
       fields:
         node: Target PVE Node
         allowedNodes: Allowed Nodes
+        ha: Manage with Proxmox HA
+        haGroup: HA Group
         templateSource: Select Template
         template: Source Template (VMID)
         templateTag: Template Tag
